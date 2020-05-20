@@ -1,0 +1,6 @@
+## pcl optimization notes:
+1. Most of out optimizations are to CopyReduce and BinaryReduce primitives
+2. These optimizations are all written in dgl/src/kernel/cpu/binary_reduce_sum.cc
+3. One minor optimization is also added in dgl/src/kernel/cpu/utils.cc
+4. We have used Pytorch as the neural network backend for all our experiments
+4. We have validated our optimizetions using gcc 7.1.0 & gcc 9.3.0

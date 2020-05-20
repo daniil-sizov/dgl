@@ -96,7 +96,8 @@ def main(args):
 
     # graph preprocess and calculate normalization factor
     g = data.graph
-    g.remove_edges_from(nx.selfloop_edges(g))
+    if not args.dataset.startswith('reddit'):
+        g.remove_edges_from(nx.selfloop_edges(g))
     g = DGLGraph(g)
     n_edges = g.number_of_edges()
 
@@ -120,30 +121,44 @@ def main(args):
 
     # initialize graph
     dur = []
-    for epoch in range(args.n_epochs):
-        model.train()
-        if epoch >= 3:
-            t0 = time.time()
-        # forward
-        logits = model(features)
-        loss = loss_fcn(logits[train_mask], labels[train_mask])
+    use_gpu=0
+    if args.gpu != -1:
+        use_gpu=1        
+    with torch.autograd.profiler.profile(args.enable_profiling, use_gpu, True) as prof:        
+        for epoch in range(args.n_epochs):
+            tic = time.time()
+            model.train()
+            if epoch >= 3:
+                t0 = time.time()
+            # forward
+            logits = model(features)
+            loss = loss_fcn(logits[train_mask], labels[train_mask])
+        
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+            if epoch >= 3:
+                dur.append(time.time() - t0)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            toc=time.time()
+            print("Epoch {:4d} time: {:0.4f}".format(epoch, toc-tic))
+            if args.val:
+                acc = evaluate(model, features, labels, val_mask)
+                print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
+                      "ETputs(KTEPS) {:.2f}".format(epoch, np.mean(dur), loss.item(),
+                                                    acc, n_edges / np.mean(dur) / 1000))
 
-        if epoch >= 3:
-            dur.append(time.time() - t0)
+        if args.inf:
+            print()
+            acc = evaluate(model, features, labels, test_mask)
+            print("Test Accuracy {:.4f}".format(acc))
 
-        acc = evaluate(model, features, labels, val_mask)
-        print("Epoch {:05d} | Time(s) {:.4f} | Loss {:.4f} | Accuracy {:.4f} | "
-              "ETputs(KTEPS) {:.2f}".format(epoch, np.mean(dur), loss.item(),
-                                            acc, n_edges / np.mean(dur) / 1000))
-
-    print()
-    acc = evaluate(model, features, labels, test_mask)
-    print("Test Accuracy {:.4f}".format(acc))
-
+    # profiling
+    if args.enable_profiling:
+        with open("graphsage_full.prof", "w") as prof_f:
+            ##prof_f.write(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total"))
+            prof_f.write(prof.key_averages().table(sort_by="cpu_time_total"))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GraphSAGE')
@@ -164,6 +179,13 @@ if __name__ == '__main__':
                         help="Weight for L2 loss")
     parser.add_argument("--aggregator-type", type=str, default="gcn",
                         help="Aggregator type: mean/gcn/pool/lstm")
+    parser.add_argument("--enable-profiling", action="store_true",
+                           default=False)
+    parser.add_argument("--inf", action="store_true",
+                           default=False)    
+    parser.add_argument("--val", action="store_true",
+                           default=False)    
+    
     args = parser.parse_args()
     print(args)
 

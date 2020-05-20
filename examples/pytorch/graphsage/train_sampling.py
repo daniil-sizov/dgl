@@ -180,46 +180,62 @@ def run(args, device, data):
     # Training loop
     avg = 0
     iter_tput = []
-    for epoch in range(args.num_epochs):
-        tic = time.time()
+    use_gpu=0
+    if args.gpu != -1:
+        use_gpu=1
+        
+    #dur_epoch_bc = []
+    #dur_epoch_fwd = []
+    with th.autograd.profiler.profile(args.enable_profiling, use_gpu, True) as prof:    
+        for epoch in range(args.num_epochs):
+            tic = time.time()
+        
+            # Loop over the dataloader to sample the computation dependency graph as a list of
+            # blocks.
+            for step, blocks in enumerate(dataloader):
+                tic_step = time.time()
+        
+                # The nodes for input lies at the LHS side of the first block.
+                # The nodes for output lies at the RHS side of the last block.
+                input_nodes = blocks[0].srcdata[dgl.NID]
+                seeds = blocks[-1].dstdata[dgl.NID]
+        
+                # Load the input features as well as output labels
+                batch_inputs, batch_labels = load_subtensor(g, labels, seeds, input_nodes, device)
+        
+                # Compute loss and prediction
+                batch_pred = model(blocks, batch_inputs)
+                loss = loss_fcn(batch_pred, batch_labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
-        # Loop over the dataloader to sample the computation dependency graph as a list of
-        # blocks.
-        for step, blocks in enumerate(dataloader):
-            tic_step = time.time()
+                if args.val:
+                    iter_tput.append(len(seeds) / (time.time() - tic_step))
+                    if step % args.log_every == 0:
+                        acc = compute_acc(batch_pred, batch_labels)
+                        gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
+                        print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MiB'.format(
+                            epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
+        
+            toc = time.time()
+            print('Epoch Time(s): {:.4f}'.format(toc - tic))
+            if epoch >= 5:
+                avg += toc - tic
+                
+            if args.inf:
+                if epoch % args.eval_every == 0 and epoch != 0:
+                    eval_acc = evaluate(model, g, g.ndata['features'], labels, val_mask, args.batch_size, device)
+                    print('Eval Acc {:.4f}'.format(eval_acc))
+        
+        print('Avg epoch time: {}'.format(avg / (epoch - 4)))
 
-            # The nodes for input lies at the LHS side of the first block.
-            # The nodes for output lies at the RHS side of the last block.
-            input_nodes = blocks[0].srcdata[dgl.NID]
-            seeds = blocks[-1].dstdata[dgl.NID]
-
-            # Load the input features as well as output labels
-            batch_inputs, batch_labels = load_subtensor(g, labels, seeds, input_nodes, device)
-
-            # Compute loss and prediction
-            batch_pred = model(blocks, batch_inputs)
-            loss = loss_fcn(batch_pred, batch_labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            iter_tput.append(len(seeds) / (time.time() - tic_step))
-            if step % args.log_every == 0:
-                acc = compute_acc(batch_pred, batch_labels)
-                gpu_mem_alloc = th.cuda.max_memory_allocated() / 1000000 if th.cuda.is_available() else 0
-                print('Epoch {:05d} | Step {:05d} | Loss {:.4f} | Train Acc {:.4f} | Speed (samples/sec) {:.4f} | GPU {:.1f} MiB'.format(
-                    epoch, step, loss.item(), acc.item(), np.mean(iter_tput[3:]), gpu_mem_alloc))
-
-        toc = time.time()
-        print('Epoch Time(s): {:.4f}'.format(toc - tic))
-        if epoch >= 5:
-            avg += toc - tic
-        if epoch % args.eval_every == 0 and epoch != 0:
-            eval_acc = evaluate(model, g, g.ndata['features'], labels, val_mask, args.batch_size, device)
-            print('Eval Acc {:.4f}'.format(eval_acc))
-
-    print('Avg epoch time: {}'.format(avg / (epoch - 4)))
-
+    # profiling
+    if args.enable_profiling:
+        with open("graphsage_sampling.prof", "w") as prof_f:
+            ##prof_f.write(prof.key_averages(group_by_input_shape=True).table(sort_by="cpu_time_total"))
+            prof_f.write(prof.key_averages().table(sort_by="cpu_time_total"))
+        
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser("multi-gpu training")
     argparser.add_argument('--gpu', type=int, default=0,
@@ -235,6 +251,13 @@ if __name__ == '__main__':
     argparser.add_argument('--dropout', type=float, default=0.5)
     argparser.add_argument('--num-workers', type=int, default=0,
         help="Number of sampling processes. Use 0 for no extra process.")
+    argparser.add_argument("--enable-profiling", action="store_true",
+                        default=False)
+    argparser.add_argument("--inf", action="store_true",
+                        default=False)
+    argparser.add_argument("--val", action="store_true",
+                        default=False)
+    
     args = argparser.parse_args()
     
     if args.gpu >= 0:
