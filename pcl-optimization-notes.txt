@@ -3,4 +3,5 @@
 2. These optimizations are all written in dgl/src/kernel/cpu/binary_reduce_sum.cc
 3. One minor optimization is also added in dgl/src/kernel/cpu/utils.cc
 4. We have used Pytorch as the neural network backend for all our experiments
-4. We have validated our optimizetions using gcc 7.1.0 & gcc 9.3.0
+5. We have validated our optimizations using gcc 7.1.0 & gcc 9.3.0
+6. Our optimized matrix multiplication code is specifically optimized for sampling graphs and not for full graphs. We use Intel KL for matrix multiplication on full graphs. By default Intel MKL code (sparse_mkl()) is used for matrix multiplication. Our matrix multiplication code (sparse_mm3()) can be enabled by setting MKL_ENABLED=0 in dgl/src/kernel/cpu/binary_reduce_sum.cc
