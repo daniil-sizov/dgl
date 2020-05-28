@@ -21,7 +21,10 @@ namespace dgl {
 
 using namespace dgl::runtime;
 using namespace dgl::aten;
-
+//#define log_me(x) std::cout << x << std::endl;
+#ifndef log_me
+#define log_me(x)
+#endif
 namespace transform {
 
 namespace {
@@ -68,7 +71,9 @@ ToBlock(HeteroGraphPtr graph, const std::vector<IdArray> &rhs_nodes, bool includ
     num_nodes_per_type.push_back(rhs_node_mappings[ntype].Size());
 
   std::vector<HeteroGraphPtr> rel_graphs;
+  // rel_graphs.reserve(num_etypes);
   std::vector<IdArray> induced_edges;
+  // induced_edges.reserve(num_etypes);
   for (int64_t etype = 0; etype < num_etypes; ++etype) {
     const auto src_dst_types = graph->GetEndpointTypes(etype);
     const dgl_type_t srctype = src_dst_types.first;
@@ -79,15 +84,23 @@ ToBlock(HeteroGraphPtr graph, const std::vector<IdArray> &rhs_nodes, bool includ
         2, lhs_map.Size(), rhs_map.Size(),
         lhs_map.Map(edge_arrays[etype].src, -1),
         rhs_map.Map(edge_arrays[etype].dst, -1)));
-    induced_edges.push_back(edge_arrays[etype].id);
+    induced_edges.push_back(std::move(edge_arrays[etype].id));
   }
 
   const HeteroGraphPtr new_graph = CreateHeteroGraph(
       new_meta_graph, rel_graphs, num_nodes_per_type);
-  std::vector<IdArray> lhs_nodes;
+ // std::vector<IdArray> lhs_nodes(lhs_node_mappings.size());
+   std::vector<IdArray> lhs_nodes;
+ 
+  log_me("lhs_node_mappings.size() =" << lhs_node_mappings.size());
+  int i=0;
   for (const IdHashMap<IdType> &lhs_map : lhs_node_mappings)
-    lhs_nodes.push_back(lhs_map.Values());
+   // lhs_nodes.push_back(lhs_map.Values());
+     lhs_nodes.push_back(lhs_map.Values());
+    // lhs_nodes[i++]=std::move(lhs_map.Values());
+  
   return std::make_tuple(new_graph, lhs_nodes, induced_edges);
+  //return std::make_tuple(new_graph, std::move(lhs_nodes), std::move(induced_edges));
 }
 
 };  // namespace

@@ -105,6 +105,7 @@ HeteroSubgraph EdgeSubgraphNoPreserveNodes(
       subedges[etype].src,
       subedges[etype].dst);
   }
+  std::cout << "Tutaj2" << std::endl;
   ret.graph = HeteroGraphPtr(new HeteroGraph(
       hg->meta_graph(), subrels, std::move(num_vertices_per_type)));
   return ret;
@@ -159,10 +160,13 @@ InferNumVerticesPerType(GraphPtr meta_graph, const std::vector<HeteroGraphPtr>& 
 
 std::vector<UnitGraphPtr> CastToUnitGraphs(const std::vector<HeteroGraphPtr>& rel_graphs) {
   std::vector<UnitGraphPtr> relation_graphs(rel_graphs.size());
+ // std::cout << "size=" << rel_graphs.size() << std::endl;
   for (size_t i = 0; i < rel_graphs.size(); ++i) {
-    HeteroGraphPtr relg = rel_graphs[i];
-    if (std::dynamic_pointer_cast<UnitGraph>(relg)) {
-      relation_graphs[i] = std::dynamic_pointer_cast<UnitGraph>(relg);
+    const HeteroGraphPtr& relg = rel_graphs[i];
+    auto ptr = std::dynamic_pointer_cast<UnitGraph>(relg);
+    if (ptr) {
+     // relation_graphs[i] = std::dynamic_pointer_cast<UnitGraph>(relg);
+      relation_graphs[i] = ptr;
     } else {
       relation_graphs[i] = CHECK_NOTNULL(
           std::dynamic_pointer_cast<UnitGraph>(relg->GetRelationGraph(0)));
@@ -180,11 +184,29 @@ HeteroGraph::HeteroGraph(
   if (num_nodes_per_type.size() == 0)
     num_verts_per_type_ = InferNumVerticesPerType(meta_graph, rel_graphs);
   else
+  {
     num_verts_per_type_ = num_nodes_per_type;
-
+    //std::cout << "num_nodes_per_type.size()" << num_nodes_per_type.size() << std::endl;;
+  }
   HeteroGraphSanityCheck(meta_graph, rel_graphs);
   relation_graphs_ = CastToUnitGraphs(rel_graphs);
 }
+
+HeteroGraph::HeteroGraph(
+    GraphPtr meta_graph,
+    const std::vector<HeteroGraphPtr>& rel_graphs,
+    std::vector<int64_t>&& num_nodes_per_type) : BaseHeteroGraph(meta_graph) {
+  if (num_nodes_per_type.size() == 0)
+    num_verts_per_type_ = InferNumVerticesPerType(meta_graph, rel_graphs);
+  else
+  {
+    num_verts_per_type_ = num_nodes_per_type;
+    std::cout << "Moja wersja " << num_nodes_per_type.size() << std::endl;;
+  }
+  HeteroGraphSanityCheck(meta_graph, rel_graphs);
+  relation_graphs_ = CastToUnitGraphs(rel_graphs);
+}
+
 
 bool HeteroGraph::IsMultigraph() const {
   for (const auto &hg : relation_graphs_) {
@@ -221,8 +243,10 @@ HeteroSubgraph HeteroGraph::VertexSubgraph(const std::vector<IdArray>& vids) con
     subrels[etype] = rel_vsg.graph;
     ret.induced_edges[etype] = rel_vsg.induced_edges[0];
   }
+  std::cout << "Tutaj" << std::endl;
   ret.graph = HeteroGraphPtr(new HeteroGraph(
       meta_graph_, subrels, std::move(num_vertices_per_type)));
+
   return ret;
 }
 

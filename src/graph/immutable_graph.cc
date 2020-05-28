@@ -309,7 +309,7 @@ COO::COO(int64_t num_vertices, IdArray src, IdArray dst) {
   CHECK(aten::IsValidIdArray(src));
   CHECK(aten::IsValidIdArray(dst));
   CHECK_EQ(src->shape[0], dst->shape[0]);
-  adj_ = aten::COOMatrix{num_vertices, num_vertices, src, dst};
+  adj_ = aten::COOMatrix{num_vertices, num_vertices, std::move(src), std::move(dst)};
 }
 
 bool COO::IsMultigraph() const {
@@ -536,7 +536,7 @@ ImmutableGraphPtr ImmutableGraph::CreateFromCSR(const std::string &name) {
 
 ImmutableGraphPtr ImmutableGraph::CreateFromCOO(
     int64_t num_vertices, IdArray src, IdArray dst) {
-  COOPtr coo(new COO(num_vertices, src, dst));
+  COOPtr coo(new COO(num_vertices, std::move(src), std::move(dst)));
   return std::make_shared<ImmutableGraph>(coo);
 }
 

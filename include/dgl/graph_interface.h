@@ -80,9 +80,16 @@ class DGLIdIters32 {
 
 
 /* \brief structure used to represent a list of edges */
-typedef struct {
+typedef struct ED_ {
   /* \brief the two endpoints and the id of the edge */
   IdArray src, dst, id;
+  // ED_() = default;
+  // ED_(const ED_& c) = default;
+  // ED_(const IdArray& _src, const IdArray& _dst , const IdArray& _id) : src(_src), dst(_dst), id(_id)  { } ;
+  // ED_& operator=(const ED_& as) = default;
+    
+    
+  // ED_(ED_&& m) { std::cout << "move" << std::endl;  }
 } EdgeArray;
 
 // forward declaration

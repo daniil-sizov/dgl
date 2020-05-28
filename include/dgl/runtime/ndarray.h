@@ -79,6 +79,7 @@ class NDArray {
    */
   NDArray(NDArray&& other) // NOLINT(*)
       : data_(other.data_) {
+       // std::cout << "Move nd" << std::endl;
     other.data_ = nullptr;
   }
   /*! \brief destructor */

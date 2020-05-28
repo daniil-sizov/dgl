@@ -96,8 +96,13 @@ class IdHashMap {
   IdArray Values() const {
     IdArray values = NewIdArray(oldv2newv_.size(), DLContext{kDLCPU, 0}, sizeof(IdType) * 8);
     IdType* values_data = static_cast<IdType*>(values->data);
+  //  int i=0;
     for (auto pair : oldv2newv_)
+    {
       values_data[pair.second] = pair.first;
+   //   ++i;
+    }
+    //  std::cout << "values.size()" << values.GetSize() << " " << i << std::endl;
     return values;
   }
 

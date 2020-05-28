@@ -182,7 +182,8 @@ NDArray NDArray::EmptyShared(const std::string &name,
 NDArray NDArray::Empty(std::vector<int64_t> shape,
                        DLDataType dtype,
                        DLContext ctx) {
-  NDArray ret = Internal::Create(shape, dtype, ctx);
+      //   std::cout << "Shape size=" << shape.size() << std::endl;
+  NDArray ret = Internal::Create(std::move(shape), dtype, ctx);
   // setup memory content
   size_t size = GetDataSize(ret.data_->dl_tensor);
   size_t alignment = GetDataAlignment(ret.data_->dl_tensor);
