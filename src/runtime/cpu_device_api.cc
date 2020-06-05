@@ -8,6 +8,7 @@
 #include <dgl/runtime/device_api.h>
 #include <cstdlib>
 #include <cstring>
+#include <sys/mman.h>
 #include "workspace_pool.h"
 
 namespace dgl {
@@ -32,8 +33,23 @@ class CPUDeviceAPI final : public DeviceAPI {
     ptr = memalign(alignment, nbytes);
     if (ptr == nullptr) throw std::bad_alloc();
 #else
-    int ret = posix_memalign(&ptr, alignment, nbytes);
-    if (ret != 0) throw std::bad_alloc();
+
+    constexpr size_t _HugePage2MB_ = 1<<21;   
+    
+    if(nbytes>=_HugePage2MB_)
+    {
+       int ret = posix_memalign(&ptr, _HugePage2MB_, nbytes);
+       if (ret != 0) throw std::bad_alloc();
+       if( (ret= madvise(ptr, nbytes, MADV_HUGEPAGE )) != 0 )
+       throw std::bad_alloc();     
+     //  std::cout << "Allocation " << nbytes << std::endl;
+    } 
+    else
+    {
+       int ret = posix_memalign(&ptr, alignment, nbytes);
+       if (ret != 0) throw std::bad_alloc();
+    }     
+    
 #endif
     return ptr;
   }
