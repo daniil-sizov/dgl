@@ -81,6 +81,7 @@ class IdHashMap {
     const int64_t len = ids->shape[0];
     IdArray values = NewIdArray(len, ids->ctx, ids->dtype.bits);
     IdType* values_data = static_cast<IdType*>(values->data);
+   #pragma omp parallel for
     for (int64_t i = 0; i < len; ++i)
       values_data[i] = Map(ids_data[i], default_val);
     return values;
@@ -106,7 +107,16 @@ class IdHashMap {
   // Hashtable is very slow. Using bloom filter can significantly speed up lookups.
   std::vector<bool> filter_;
   // The hashmap from old vid to new vid
-  phmap::flat_hash_map<IdType, IdType> oldv2newv_;
+  // phmap::flat_hash_map<IdType, IdType> oldv2newv_;
+  //phmap::parallel_flat_hash_map<IdType,IdType> oldv2newv_;
+  
+  template<class K, class V>
+  using pmap = phmap::parallel_flat_hash_map<K,V, phmap::container_internal::hash_default_hash<K>, 
+                            phmap::container_internal::hash_default_eq<K>, 
+                            std::allocator<std::pair<const K, V>>, 4, std::mutex >;
+  pmap<IdType,IdType> oldv2newv_;                        
+
+
 };
 
 /*
