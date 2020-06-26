@@ -33,10 +33,16 @@ class IdHashMap {
   // The id array could contain duplicates.
   // If the id array has no duplicates, the array will be relabeled to consecutive
   // integers starting from 0.
-  explicit IdHashMap(IdArray ids): filter_(kFilterSize, false) {
+  // explicit IdHashMap(IdArray ids): filter_(kFilterSize, false) {
+  //   oldv2newv_.reserve(ids->shape[0]);
+  //   Update(std::move(ids));
+  // }
+
+  explicit IdHashMap(const IdArray& ids): filter_(kFilterSize, false) {
     oldv2newv_.reserve(ids->shape[0]);
     Update(ids);
   }
+
 
   // copy ctor
   IdHashMap(const IdHashMap &other) = default;
@@ -47,16 +53,30 @@ class IdHashMap {
 
   // Update the hashmap with given id array.
   // The id array could contain duplicates.
-  void Update(IdArray ids) {
-    const IdType* ids_data = static_cast<IdType*>(ids->data);
-    const int64_t len = ids->shape[0];
+  template<class A>
+  void Update(A&& ids) {
+   // const IdType* ids_data = static_cast<IdType*>(ids->data);
+    IdType* ids_data = static_cast<IdType*>(ids->data);
+    
+    int64_t len = ids->shape[0];
+    std::sort(ids_data,ids_data+len);
+    auto last = std::unique(ids_data,ids_data+len);
+    std::cout << "len="<<len<< " duplicates=" <<  (len - std::distance(ids_data,last)) << std::endl;
+   // len = std::distance(ids_data,last);
+    // IdType tmp = ids_data[0];
+   
     for (int64_t i = 0; i < len; ++i) {
       const IdType id = ids_data[i];
       // phmap::flat_hash_map::insert assures that an insertion will not happen if the
       // key already exists.
+     // if(i && tmp == id) continue;
+     
+     // std::cout << id << " ";
       oldv2newv_.insert({id, oldv2newv_.size()});
+     // tmp = id;
       filter_[id & kFilterMask] = true;
     }
+   // std::cout << "------- " <<  std::endl;
   }
 
   // Return true if the given id is contained in this hashmap.
@@ -81,7 +101,7 @@ class IdHashMap {
     const int64_t len = ids->shape[0];
     IdArray values = NewIdArray(len, ids->ctx, ids->dtype.bits);
     IdType* values_data = static_cast<IdType*>(values->data);
-   #pragma omp parallel for
+    #pragma omp parallel for
     for (int64_t i = 0; i < len; ++i)
       values_data[i] = Map(ids_data[i], default_val);
     return values;
@@ -107,15 +127,15 @@ class IdHashMap {
   // Hashtable is very slow. Using bloom filter can significantly speed up lookups.
   std::vector<bool> filter_;
   // The hashmap from old vid to new vid
-  // phmap::flat_hash_map<IdType, IdType> oldv2newv_;
-  //phmap::parallel_flat_hash_map<IdType,IdType> oldv2newv_;
-  
+  phmap::flat_hash_map<IdType, IdType> oldv2newv_;
+  // phmap::parallel_flat_hash_map<IdType,IdType> oldv2newv_;
+  /*
   template<class K, class V>
   using pmap = phmap::parallel_flat_hash_map<K,V, phmap::container_internal::hash_default_hash<K>, 
                             phmap::container_internal::hash_default_eq<K>, 
                             std::allocator<std::pair<const K, V>>, 4, std::mutex >;
   pmap<IdType,IdType> oldv2newv_;                        
-
+   */
 
 };
 
