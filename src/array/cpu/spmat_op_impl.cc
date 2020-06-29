@@ -330,7 +330,7 @@ CSRMatrix CSRTranspose(CSRMatrix csr) {
   IdType* Bx = static_cast<IdType*>(ret_data->data);
 
   std::fill(Bp, Bp + M, 0);
-
+#pragma omp parallel for
   for (int64_t j = 0; j < nnz; ++j) {
     Bp[Aj[j]]++;
   }
