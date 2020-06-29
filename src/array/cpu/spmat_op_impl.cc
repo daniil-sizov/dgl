@@ -353,11 +353,8 @@ CSRMatrix CSRTranspose(CSRMatrix csr) {
   }
 
   // correct the indptr
-  for (int64_t i = 0, last = 0; i <= M; ++i) {
-    IdType temp = Bp[i];
-    Bp[i] = last;
-    last = temp;
-  }
+  memmove(Bp+1,Bp,sizeof(IdType)*M);
+  Bp=0;
 
   return CSRMatrix{csr.num_cols, csr.num_rows, ret_indptr, ret_indices, ret_data};
 }
