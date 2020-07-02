@@ -8,7 +8,8 @@
 #include <unordered_set>
 #include <numeric>
 #include "array_utils.h"
-
+#include "quickperf.h"
+#include <type_traits>
 namespace dgl {
 
 using runtime::NDArray;
@@ -328,12 +329,17 @@ CSRMatrix CSRTranspose(CSRMatrix csr) {
   IdType* Bp = static_cast<IdType*>(ret_indptr->data);
   IdType* Bi = static_cast<IdType*>(ret_indices->data);
   IdType* Bx = static_cast<IdType*>(ret_data->data);
-
+   
   std::fill(Bp, Bp + M, 0);
+quickperf::perf<0> perf("parallel for");
 #pragma omp parallel for
   for (int64_t j = 0; j < nnz; ++j) {
+    //     auto index = Aj[j];
+    //  ((std::atomic<IdType>*)(&Bp[index]))->fetch_add(1, std::memory_order_relaxed);
+ #pragma omp atomic
     Bp[Aj[j]]++;
   }
+  perf.end();
 
   // cumsum
   for (int64_t i = 0, cumsum = 0; i < M; ++i) {
