@@ -7,9 +7,7 @@
 #define DGL_KERNEL_CPU_FUNCTOR_H_
 
 #include <dmlc/omp.h>
-
 #include <algorithm>
-
 #include "../binary_reduce_common.h"
 
 namespace dgl {
@@ -19,11 +17,12 @@ namespace kernel {
 template <typename DType>
 struct ReduceSum<kDLCPU, DType> {
   static void Call(DType* addr, DType val) {
-    if (0 == val)
-      return;
 #pragma omp atomic
     *addr += val;
   }
+  static void CallIntel(DType* addr, DType val) {
+    *addr += val;
+  }	    
   static DType BackwardCall(DType val, DType accum) {
     return 1;
   }
@@ -35,6 +34,9 @@ struct ReduceMax<kDLCPU, DType> {
 #pragma omp critical
     *addr = std::max(*addr, val);
   }
+  static void CallIntel(DType* addr, DType val) {
+    *addr = std::max(*addr, val);
+  }    
   static DType BackwardCall(DType val, DType accum) {
     return static_cast<DType>(val == accum);
   }
@@ -46,6 +48,9 @@ struct ReduceMin<kDLCPU, DType> {
 #pragma omp critical
     *addr = std::min(*addr, val);
   }
+  static void CallIntel(DType* addr, DType val) {
+    *addr = std::min(*addr, val);
+  }    
   static DType BackwardCall(DType val, DType accum) {
     return static_cast<DType>(val == accum);
   }
@@ -57,6 +62,9 @@ struct ReduceProd<kDLCPU, DType> {
 #pragma omp atomic
     *addr *= val;
   }
+  static void CallIntel(DType* addr, DType val) {
+    *addr *= val;
+  }    
   static DType BackwardCall(DType val, DType accum) {
     return accum / val;
   }
@@ -67,6 +75,9 @@ struct ReduceNone<kDLCPU, DType> {
   static void Call(DType* addr, DType val) {
     *addr = val;
   }
+  static void CallIntel(DType* addr, DType val) {
+    *addr = val;
+  }    
   static DType BackwardCall(DType val, DType accum) {
     return 1;
   }

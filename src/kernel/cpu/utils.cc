@@ -4,6 +4,7 @@
  * \brief Utility function implementations on CPU
  */
 #include "../utils.h"
+#include "macro.h"
 
 namespace dgl {
 namespace kernel {

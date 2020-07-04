@@ -1,7 +1,14 @@
 ## pcl optimization notes:
-1. Most of out optimizations are to CopyReduce and BinaryReduce primitives
-2. These optimizations are all written in dgl/src/kernel/cpu/binary_reduce_sum.cc
+1. Most of out optimizations are targeted towards CopyReduce and BinaryReduce primitives
+2. These optimizations are all written in dgl/src/kernel/cpu/binary_reduce_sum.cc, dgl/src/kernel/cpu/binary_reduce_impl.h, dgl/src/kernel/cpu/backward_binary_reduce_impl.h
 3. One minor optimization is also added in dgl/src/kernel/cpu/utils.cc
 4. We have used Pytorch as the neural network backend for all our experiments
 5. We have validated our optimizations using gcc 7.1.0 & gcc 9.3.0
-6. Our optimized matrix multiplication code is specifically optimized for sampling graphs and not for full graphs. We use Intel KL for matrix multiplication on full graphs. By default Intel MKL code (sparse_mkl()) is used for matrix multiplication. Our matrix multiplication code (sparse_mm3()) can be enabled by setting MKL_ENABLED=0 in dgl/src/kernel/cpu/binary_reduce_sum.cc
+6. Our optimized matrix multiplication code is specifically optimized for sampling graphs and not for full graphs. We use Intel MKL for matrix multiplication on full graphs. 
+7. In the current revision, we have added optimization for different configurations of CR & BR primitive (we make use of MKL and sparse_mm3 matmuls), most of these configuration are found in GAT application.
+8. Results based on this revision are report in June month's MSR.
+9. We clone the pytorch code on 16th June 2020 (commit: 00505adbad831a5744132be53abc1a3487a82d5a). We found that the previous version of pytorch we were used was messing up the OMP thread affinity and hence the performance. 
+
+Code/file addition:
+Added file dgl/src/kernel/cpu/macro.h -- it contains macros especially "BASE" to enable disable the baseline code. 
+Use BASE 1 to enable the baseline code, else it will run the optimized code.
