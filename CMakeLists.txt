@@ -160,7 +160,7 @@ if (LIBCXX_ENABLE_PARALLEL_ALGORITHMS)
   add_definitions(-DPARALLEL_ALGORITHMS)
 endif(LIBCXX_ENABLE_PARALLEL_ALGORITHMS)
 
-target_link_libraries(dgl ${DGL_LINKER_LIBS} ${DGL_RUNTIME_LINKER_LIBS})
+target_link_libraries(dgl ${DGL_LINKER_LIBS} ${DGL_RUNTIME_LINKER_LIBS} z )
 
 # Installation rules
 install(TARGETS dgl DESTINATION lib${LIB_SUFFIX})

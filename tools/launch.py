@@ -14,7 +14,8 @@ DEFAULT_PORT = 30050
 
 def execute_remote(cmd, ip, port, thread_list):
     """execute command line on remote machine via ssh"""
-    cmd = 'ssh -o StrictHostKeyChecking=no -p ' + str(port) + ' ' + ip + ' \'' + cmd + '\''
+    #cmd = 'ssh -o StrictHostKeyChecking=no -p ' + str(port) + ' ' + ip + ' \'' + cmd + '\''
+    cmd = 'ssh -o StrictHostKeyChecking=no ' + ip + ' BASH_ENV=~/.profile' + ' \'source ~/.profile; ' + cmd + '\''
     # thread func to run the job
     def run(cmd):
         subprocess.check_call(cmd, shell = True)

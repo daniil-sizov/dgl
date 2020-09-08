@@ -16,10 +16,11 @@
 #include <condition_variable>
 #include <atomic>
 #include <functional>
-
+#include "tcp_socket.h"
 namespace dgl {
 namespace network {
-
+int gzip(const void *input, size_t input_len, void *out, size_t out_size, size_t &compress_len);
+int ungzip(const void *input, size_t input_len, void *out, size_t out_size, size_t &total_size);
 typedef int STATUS;
 
 /*!
@@ -36,6 +37,7 @@ typedef int STATUS;
 /*!
  * \brief Message used by network communicator and message queue.
  */
+static constexpr int64_t GZIPED = (1UL << ((sizeof(int64_t) * 8) - 1));
 struct Message {
   /*!
    * \brief Constructor
@@ -44,9 +46,9 @@ struct Message {
 
   /*!
    * \brief Constructor
-   */ 
+   */
   Message(char* data_ptr, int64_t data_size)
-  : data(data_ptr), size(data_size) { }
+  : data(data_ptr), size(data_size), is_ziped(0) { }
 
   /*!
    * \brief message data
@@ -59,8 +61,12 @@ struct Message {
   /*!
    * \brief user-defined deallocator, which can be nullptr
    */
+  bool is_ziped;
+  int zip();
+  int unzip();
   std::function<void(Message*)> deallocator = nullptr;
 };
+
 
 /*!
  * \brief Free memory buffer of message
@@ -70,17 +76,17 @@ inline void DefaultMessageDeleter(Message* msg) { delete [] msg->data; }
 /*!
  * \brief Message Queue for network communication.
  *
- * MessageQueue is FIFO queue that adopts producer/consumer model for data message. 
- * It supports one or more producer threads and one or more consumer threads. 
- * Producers invokes Add() to push data message into the queue, and consumers 
+ * MessageQueue is FIFO queue that adopts producer/consumer model for data message.
+ * It supports one or more producer threads and one or more consumer threads.
+ * Producers invokes Add() to push data message into the queue, and consumers
  * invokes Remove() to pop data message from queue. Add() and Remove() use two condition
- * variables to synchronize producer threads and consumer threads. Each producer 
- * invokes SignalFinished(producer_id) to claim that it is about to finish, where 
- * producer_id is an integer uniquely identify a producer thread. This signaling mechanism 
- * prevents consumers from waiting after all producers have finished their jobs. 
+ * variables to synchronize producer threads and consumer threads. Each producer
+ * invokes SignalFinished(producer_id) to claim that it is about to finish, where
+ * producer_id is an integer uniquely identify a producer thread. This signaling mechanism
+ * prevents consumers from waiting after all producers have finished their jobs.
  *
  * MessageQueue is thread-safe.
- * 
+ *
  */
 class MessageQueue {
  public:
@@ -130,48 +136,48 @@ class MessageQueue {
   bool EmptyAndNoMoreAdd() const;
 
  protected:
-  /*! 
-   * \brief message queue 
+  /*!
+   * \brief message queue
    */
   std::queue<Message> queue_;
 
-  /*! 
-   * \brief Size of the queue in bytes 
+  /*!
+   * \brief Size of the queue in bytes
    */
   int64_t queue_size_;
 
-  /*! 
-   * \brief Free size of the queue 
+  /*!
+   * \brief Free size of the queue
    */
   int64_t free_size_;
 
-  /*! 
-   * \brief Used to check all producers will no longer produce anything 
+  /*!
+   * \brief Used to check all producers will no longer produce anything
    */
   size_t num_producers_;
 
-  /*! 
-   * \brief Store finished producer id 
+  /*!
+   * \brief Store finished producer id
    */
   std::set<int /* producer_id */> finished_producers_;
 
-  /*! 
-   * \brief Condition when consumer should wait 
+  /*!
+   * \brief Condition when consumer should wait
    */
   std::condition_variable cond_not_full_;
 
-  /*! 
-   * \brief Condition when producer should wait 
+  /*!
+   * \brief Condition when producer should wait
    */
   std::condition_variable cond_not_empty_;
 
-  /*! 
-   * \brief Signal for exit wait 
+  /*!
+   * \brief Signal for exit wait
    */
   std::atomic<bool> exit_flag_{false};
 
-  /*! 
-   * \brief Protect all above data and conditions 
+  /*!
+   * \brief Protect all above data and conditions
    */
   mutable std::mutex mutex_;
 };

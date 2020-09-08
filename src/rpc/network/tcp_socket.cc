@@ -18,6 +18,63 @@
 #include <string.h>
 #include <errno.h>
 
+std::recursive_mutex &getMX()
+{
+  static std::recursive_mutex mx;
+  return mx;
+}
+
+
+const char* getMachine() {
+    static std::string str;
+    if(!str.size())
+    {
+      std::lock_guard<decltype(getMX())> lock(getMX());
+      if(!str.size())
+      {
+      char buff[32];
+      gethostname(buff, sizeof(buff));
+      str = buff;
+      }
+    }
+    return str.c_str();
+}
+const char *getLogFileName()
+{
+  static std::string l;
+  std::stringstream ss;
+  ss << "/home/pablo/new_work/steps/log_";
+  ss << getpid();
+  ss << ".txt";
+  l = ss.str();
+  show_me( "File opened " << l );
+  return l.c_str();
+}
+
+const char *getStatsFileName()
+{
+  static std::string l;
+  std::stringstream ss;
+  ss << "/home/pablo/new_work/steps/stats_";
+  ss << getpid();
+  ss << ".txt";
+  l = ss.str();
+  show_me("File opened " << l);
+  return l.c_str();
+}
+
+std::ofstream &getLogStream()
+{
+  static std::unique_ptr<std::ofstream> file(new std::ofstream(getLogFileName()));
+  return *file;
+};
+
+std::ofstream &getStatStream()
+{
+  static std::unique_ptr<std::ofstream> file(new std::ofstream(getStatsFileName()));
+  return *file;
+};
+
 namespace dgl {
 namespace network {
 
@@ -30,10 +87,15 @@ TCPSocket::TCPSocket() {
   if (socket_ < 0) {
     LOG(FATAL) << "Can't create new socket. Errno=" << errno;
   }
+  log_me_this("TCPSocket::TCPSocket()");
+  rcv_total = 0;
+  send_total = 0;
 }
 
 TCPSocket::~TCPSocket() {
-  Close();
+    log_me_this("TCPSocket::~TCPSocket()");
+
+    Close();
 }
 
 bool TCPSocket::Connect(const char * ip, int port) {
@@ -46,6 +108,9 @@ bool TCPSocket::Connect(const char * ip, int port) {
     if (0 < inet_pton(AF_INET, ip, &sa_server.sin_addr) &&
         0 <= (retval = connect(socket_, reinterpret_cast<SA*>(&sa_server),
                     sizeof(sa_server)))) {
+      ip_connected = ip;
+      port_connected = port;
+      log_me_this("TCPSocket::Connect(ip=" << ip << "," << port << ")");
       return true;
     }
   } while (retval == -1 && errno == EINTR);
@@ -62,7 +127,10 @@ bool TCPSocket::Bind(const char * ip, int port) {
     if (0 < inet_pton(AF_INET, ip, &sa_server.sin_addr) &&
         0 <= (retval = bind(socket_, reinterpret_cast<SA*>(&sa_server),
                   sizeof(sa_server)))) {
-      return true;
+      ip_connected = "frombind=>";
+      ip_connected += ip;
+      port_connected = port;
+      log_me_this("TCPSocket::Bind() " << ip << ":" << port) return true;
     }
   } while (retval == -1 && errno == EINTR);
 
@@ -74,7 +142,8 @@ bool TCPSocket::Listen(int max_connection) {
   int retval;
   do {  // retry if EINTR failure appears
     if (0 <= (retval = listen(socket_, max_connection))) {
-      return true;
+        log_me_this("TCPSocket::Listen(max_connection=" << max_connection)
+        return true;
     }
   } while (retval == -1 && errno == EINTR);
 
@@ -106,8 +175,10 @@ bool TCPSocket::Accept(TCPSocket * socket, std::string * ip, int * port) {
   ip->assign(ip_client);
   *port = ntohs(sa_client.sin_port);
   socket->socket_ = sock_client;
-
-  return true;
+  socket->port_connected=*port;
+  socket->ip_connected=*ip;
+  log_me_this("TCPSocket::Accept(TCPSocket=" << socket << " from=" << (*ip) << ":" << (*port))
+      return true;
 }
 
 #ifdef _WIN32
@@ -144,7 +215,7 @@ bool TCPSocket::SetBlocking(bool flag) {
     LOG(ERROR) << "Failed to set socket status.";
     return false;
   }
-
+  log_me_this("TCPSocket::SetBlocking(flag="<< flag << ")");
   return true;
 }
 #endif  // _WIN32
@@ -161,6 +232,7 @@ void TCPSocket::SetTimeout(int timeout) {
     setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO,
                &tv, sizeof(tv));
   #endif  // _WIN32
+   log_me_this("TCPSocket::SetTimeout(timeout="<< timeout << ")");
 }
 
 bool TCPSocket::ShutDown(int ways) {
@@ -168,6 +240,16 @@ bool TCPSocket::ShutDown(int ways) {
 }
 
 void TCPSocket::Close() {
+   {
+     std::lock_guard<decltype(getMX())> lock(getMX());
+     stat_me("TCPSocket::Close() STATBYTES " << this->getIP() << ":" << this->getPort() << " send=" << send_total << " rcv=" << rcv_total);
+     auto cnt = 0;
+     for(auto& pair : m)
+     {
+       stat_me("MSGDETAIL " << (cnt++) << " size=" << pair.first << " count=" << pair.second  );
+     }
+     stat_me("-----");
+   }
   if (socket_ >= 0) {
 #ifdef _WIN32
     CHECK_EQ(0, closesocket(socket_));
@@ -176,6 +258,7 @@ void TCPSocket::Close() {
 #endif  // _WIN32
     socket_ = -1;
   }
+  log_me_this("TCPSocket::ShutDown()");
 }
 
 int64_t TCPSocket::Send(const char * data, int64_t len_data) {
@@ -187,7 +270,7 @@ int64_t TCPSocket::Send(const char * data, int64_t len_data) {
   if (number_send == -1) {
     LOG(ERROR) << "send error: " << strerror(errno);
   }
-
+  log_me_this("TCPSocket::Send(data=?, len_data="<< len_data << ")");
   return number_send;
 }
 
@@ -200,12 +283,37 @@ int64_t TCPSocket::Receive(char * buffer, int64_t size_buffer) {
   if (number_recv == -1) {
     LOG(ERROR) << "recv error: " << strerror(errno);
   }
-
+  log_me_this("TCPSocket::Receive(buff=out?, size_buffer="<< size_buffer << ")");
   return number_recv;
 }
 
 int TCPSocket::Socket() const {
   return socket_;
+}
+
+void TCPSocket::send_complete(int64_t size)
+{
+       send_total+=size;
+       addstat(size);
+}
+void TCPSocket::rcv_complete(int64_t size)
+{
+       rcv_total+=size;
+       addstat(size);
+}
+
+void TCPSocket::addstat(int64_t size)
+{
+     //  catch_gdb("addstat");
+      auto it = m.find(size);
+      if(it==m.end())
+      {
+         m.insert(std::pair<int64_t,int64_t>(size,1));
+      }
+      else
+      {
+         it->second++;
+      }
 }
 
 }  // namespace network

@@ -10,17 +10,70 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-#pragma comment(lib, "Ws2_32.lib")
+#pragma comment(lib, "Ws2_32.li b")
 #else   // !_WIN32
 #include <sys/socket.h>
 #endif  // _WIN32
 #include <string>
+#include <thread>
+#include <mutex>
+#include <unistd.h>
+#include <memory>
+#include <fstream>
+#include <sstream>
+#include <sys/types.h>
+#include <map>
+std::recursive_mutex& getMX();
+
+#ifndef MSG_EOF
+#ifdef MSG_FIN
+#define MSG_EOF MSG_FIN
+#endif
+#endif
+
+#ifdef MSG_EOF
+// T/TCP  using
+#endif
+const char*  getLogFileName();
+const char *getStatsFileName();
+const char *getMachine();
+std::ofstream&getLogStream();
+std::ofstream &getStatStream();
+//#define show_me(x) std::cout << x << std::endl;
+#define  catch_gdb(msg) {  \
+   char buff[32]; \
+   gethostname(buff,sizeof(buff)); \
+   std::cout << "*****CatchGDB****  ["<< buff << "]" << msg << " pid=" << getpid() <<" ppid="<< getppid() << std::endl; \
+   static int local=1; \
+   while(local) {}  \
+  }
+#ifndef show_me(x)
+#define show_me(x)
+#endif
+#define log_me(x)                                                                                                                      \
+  { \
+    if(std::getenv("NODE_LABEL")) {                                                                                                  \
+    std::lock_guard<decltype(getMX())> lock(getMX());                                                                                  \
+    auto& stream = getLogStream();                                                                                                        \
+    stream << "[deb][" << std::hex << std::this_thread::get_id() << std::dec << "|" << getpid() << "] " << x << std::dec << std::endl; } \
+  }
+#define log_me_this(x) log_me( std::hex << "this=" << this  << std::dec << " "<< x)
+
+#define stat_me(x)                                                                                                                        \
+  {                                                                                                                                      \
+    if (1)                                                                                                       \
+    {                                                                                                                                    \
+      std::lock_guard<decltype(getMX())> lock(getMX());                                                                                  \
+      auto &stream = getStatStream();                                                                                                     \
+      stream << "[deb][" << std::hex << std::this_thread::get_id() << std::dec << "|" << getpid() << "] " << x << std::dec << std::endl; \
+    }                                                                                                                                    \
+  }
 
 namespace dgl {
 namespace network {
 
 /*!
- * \brief TCPSocket is a simple wrapper around a socket. 
+ * \brief TCPSocket is a simple wrapper around a socket.
  * It supports only TCP connections.
  */
 class TCPSocket {
@@ -32,7 +85,7 @@ class TCPSocket {
 
   /*!
    * \brief TCPSocket deconstructor
-   */  
+   */
   ~TCPSocket();
 
   /*!
@@ -103,7 +156,7 @@ class TCPSocket {
    * \param data data for sending
    * \param len_data length of data
    * \return return number of bytes sent if OK, -1 on error
-   */  
+   */
   int64_t Send(const char * data, int64_t len_data);
 
   /*!
@@ -111,20 +164,29 @@ class TCPSocket {
    * \param buffer buffer for receving
    * \param size_buffer size of buffer
    * \return return number of bytes received if OK, -1 on error
-   */ 
+   */
   int64_t Receive(char * buffer, int64_t size_buffer);
 
   /*!
    * \brief Get socket's file descriptor
    * \return socket's file descriptor
-   */ 
+   */
   int Socket() const;
-
- private:
+  const std::string& getIP() { return ip_connected; }
+  int getPort() { return port_connected; }
+  void send_complete(int64_t size);
+  void rcv_complete(int64_t size);
+  void addstat(int64_t size);
+private:
   /*!
    * \brief socket's file descriptor
-   */ 
+   */
   int socket_;
+  std::string ip_connected;
+  int port_connected;
+  int64_t rcv_total;
+  int64_t send_total;
+  std::map<int64_t,int64_t> m;
 };
 
 }  // namespace network

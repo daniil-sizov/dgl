@@ -18,7 +18,7 @@
 #else   // !_WIN32
 #include <unistd.h>
 #endif  // _WIN32
-
+#include <zlib.h>
 namespace dgl {
 namespace network {
 
@@ -57,6 +57,7 @@ void SocketSender::AddReceiver(const char* addr, int recv_id) {
 bool SocketSender::Connect() {
   // Create N sockets for Receiver
   for (const auto& r : receiver_addrs_) {
+    log_me("SocketSender::Connect() " << r.second.ip.c_str() << ":" << r.second.port);
     int ID = r.first;
     sockets_[ID] = std::make_shared<TCPSocket>();
     TCPSocket* client_socket = sockets_[ID].get();
@@ -84,19 +85,77 @@ bool SocketSender::Connect() {
       return bo;
     }
     // Create a new thread for this socket connection
-    threads_[ID] = std::make_shared<std::thread>(
-      SendLoop,
-      client_socket,
-      msg_queue_[ID].get());
+
+        threads_[ID] = std::make_shared<std::thread>(
+            SendLoop,
+            client_socket,
+            msg_queue_[ID].get());
+        log_me("SocketSender::Connect() Create new thread tid=" << std::hex << threads_[ID]->get_id() <<  std::dec<<" call SendLoop with "<< client_socket->getIP() << ":" << client_socket->getPort() );
   }
   return true;
 }
+
+// int gzip(const void *input, size_t input_len, void *out, size_t out_size, size_t &compress_len)
+// {
+//   z_stream defstream;
+//   defstream.zalloc = Z_NULL;
+//   defstream.zfree = Z_NULL;
+//   defstream.opaque = Z_NULL;
+//   // setup "a" as the input and "b" as the compressed output
+//   defstream.avail_in = (uInt)input_len; // size of input, string + terminator
+//   defstream.next_in = (Bytef *)input;   // input char array
+//   defstream.avail_out = (uInt)out_size; // size of output
+//   defstream.next_out = (Bytef *)out;    // output char array
+
+//   if (deflateInit(&defstream, Z_BEST_COMPRESSION) != Z_OK)
+//   {
+//     std::cout << "Error deflateInit" << std::endl;
+//     return 1;
+//   }
+//   auto ret = deflate(&defstream, Z_FINISH);
+//   if (ret < 0)
+//   {
+//     std::cout << "Error deflate " << ret << std::endl;
+//     return 2;
+//   }
+
+//   if (deflateEnd(&defstream) < 0)
+//   {
+//     std::cout << "Error deflateEnd" << std::endl;
+//     return 3;
+//   }
+//   compress_len = defstream.total_out;
+//   std::cout << defstream.total_out << std::endl;
+
+//   return 0;
+// }
 
 STATUS SocketSender::Send(Message msg, int recv_id) {
   CHECK_NOTNULL(msg.data);
   CHECK_GT(msg.size, 0);
   CHECK_GE(recv_id, 0);
   // Add data message to message queue
+
+  // if (msg.size > 3000000)
+  // {
+  //  // std::lock_guard<decltype(getMX())> lock(getMX());
+  //   std::unique_ptr<char> buff ( new char[ msg.size * 2] );
+  //   size_t total = 0;
+  //   // std::cout << "Compress start size=" << msg.size << " out_buff_size=" << sizeof(buff) << std::endl;
+  //   auto err = dgl::network::gzip(msg.data, msg.size, buff.get(), msg.size * 2, total);
+  //   if(total < msg.size)
+  //   {
+  //     auto diff = (msg.size - total);
+  //    #define show_fast(x) std::cout << "[" << getMachine() << "]" << x << std::endl
+  //    show_fast("send gzip=" << (int) ((1 - ( (double)total / (double)(msg.size)))*100) << " % ===> " << total << "/" << msg.size << " save=" << diff );
+  //   } else if ( total > msg.size )
+  //   {
+  //      std::cout << "compress greater !" << std::endl;
+  //   }
+  //    // std::cout << "Compress end size=" <<" error=" << err << std::endl;
+  //   //   log_me("gzip size= " << msg.size << " gziped="<< total);
+  // }
+
   STATUS code = msg_queue_[recv_id]->Add(msg);
   return code;
 }
@@ -126,11 +185,12 @@ void SocketSender::Finalize() {
 }
 
 void SocketSender::SendLoop(TCPSocket* socket, MessageQueue* queue) {
-  CHECK_NOTNULL(socket);
+   log_me("SocketSender::SendLoop(TCPSocket* socket="<< socket << " ip=" << socket->getIP() << ":" << socket->getPort())
+   CHECK_NOTNULL(socket);
   CHECK_NOTNULL(queue);
   bool exit = false;
   while (!exit) {
-    Message msg;
+    Message msg; // how to
     STATUS code = queue->Remove(&msg);
     if (code == QUEUE_CLOSE) {
       msg.size = 0;  // send an end-signal to receiver
@@ -138,6 +198,7 @@ void SocketSender::SendLoop(TCPSocket* socket, MessageQueue* queue) {
     }
     // First send the size
     // If exit == true, we will send zero size to reciever
+    msg.zip();
     int64_t sent_bytes = 0;
     while (static_cast<size_t>(sent_bytes) < sizeof(int64_t)) {
       int64_t max_len = sizeof(int64_t) - sent_bytes;
@@ -149,12 +210,18 @@ void SocketSender::SendLoop(TCPSocket* socket, MessageQueue* queue) {
     }
     // Then send the data
     sent_bytes = 0;
+    if(msg.is_ziped)
+    {
+       msg.size &= ~GZIPED;
+    }
     while (sent_bytes < msg.size) {
       int64_t max_len = msg.size - sent_bytes;
+      log_me("SocketSender::SendLoop::Send( ip=" << socket->getIP() << ":" << socket->getPort() << " max_len=" << max_len);
       int64_t tmp = socket->Send(msg.data+sent_bytes, max_len);
       CHECK_NE(tmp, -1);
       sent_bytes += tmp;
     }
+    socket->send_complete(sent_bytes);
     // delete msg
     if (msg.deallocator != nullptr) {
       msg.deallocator(&msg);
@@ -167,6 +234,7 @@ void SocketSender::SendLoop(TCPSocket* socket, MessageQueue* queue) {
 bool SocketReceiver::Wait(const char* addr, int num_sender) {
   CHECK_NOTNULL(addr);
   CHECK_GT(num_sender, 0);
+  log_me("SocketReceiver::Wait( ip_addr=" << addr << " num_sender=" << num_sender << ")");
   std::vector<std::string> substring;
   std::vector<std::string> ip_and_port;
   SplitStringUsing(addr, "//", &substring);
@@ -210,10 +278,12 @@ bool SocketReceiver::Wait(const char* addr, int num_sender) {
       return false;
     }
     // create new thread for each socket
+
     threads_[i] = std::make_shared<std::thread>(
       RecvLoop,
       sockets_[i].get(),
       msg_queue_[i].get());
+    log_me("SocketReceiver::Wait( ) create new thread=" << i << " thread_id=" << std::hex << threads_[i]->get_id() << std::dec << " ip=" << sockets_[i]->getIP() << ":" << sockets_[i]->getPort() << " queue=" << std::hex << msg_queue_[i].get());
   }
 
   return true;
@@ -237,6 +307,7 @@ STATUS SocketReceiver::Recv(Message* msg, int* send_id) {
 
 STATUS SocketReceiver::RecvFrom(Message* msg, int send_id) {
   // Get message from specified message queue
+  log_me("SocketReceiver::RecvFrom(msg=out , send_id=" << send_id << ")");
   STATUS code = msg_queue_[send_id]->Remove(msg);
   return code;
 }
@@ -268,7 +339,8 @@ void SocketReceiver::Finalize() {
 void SocketReceiver::RecvLoop(TCPSocket* socket, MessageQueue* queue) {
   CHECK_NOTNULL(socket);
   CHECK_NOTNULL(queue);
-  for (;;) {
+  log_me("SocketReceiver::RecvLoop(socket="<< socket->getIP() << ":" << socket->getPort());
+      for (;;) {
     // If main thread had finished its job
     if (queue->EmptyAndNoMoreAdd()) {
       return;  // exit loop thread
@@ -276,6 +348,7 @@ void SocketReceiver::RecvLoop(TCPSocket* socket, MessageQueue* queue) {
     // First recv the size
     int64_t received_bytes = 0;
     int64_t data_size = 0;
+    bool stream_gziped = 0;
     while (static_cast<size_t>(received_bytes) < sizeof(int64_t)) {
       int64_t max_len = sizeof(int64_t) - received_bytes;
       int64_t tmp = socket->Receive(
@@ -283,6 +356,13 @@ void SocketReceiver::RecvLoop(TCPSocket* socket, MessageQueue* queue) {
         max_len);
       CHECK_NE(tmp, -1);
       received_bytes += tmp;
+    }
+    if (data_size & GZIPED)
+    {
+      //std::cout << "rcv gzip=" << std::endl;
+      stream_gziped = 1;
+      data_size &= ~GZIPED;
+      show_me( "rcv gzip=" << data_size);
     }
     if (data_size < 0) {
       LOG(FATAL) << "Recv data error (data_size: " << data_size << ")";
@@ -293,20 +373,35 @@ void SocketReceiver::RecvLoop(TCPSocket* socket, MessageQueue* queue) {
       char* buffer = nullptr;
       try {
         buffer = new char[data_size];
+        log_me("[RecvLoop] buffer = new char[ data_size=" << data_size << "] from " << socket->getIP() << ":" << socket->getPort() << " push to queue " << std::hex << queue);
       } catch(const std::bad_alloc&) {
         LOG(FATAL) << "Cannot allocate enough memory for message, "
                    << "(message size: " << data_size << ")";
       }
       received_bytes = 0;
+      if(stream_gziped)
+      {
+        show_me("rcv gzip begin="<< data_size);
+      }
       while (received_bytes < data_size) {
         int64_t max_len = data_size - received_bytes;
         int64_t tmp = socket->Receive(buffer+received_bytes, max_len);
         CHECK_NE(tmp, -1);
         received_bytes += tmp;
       }
+      if (stream_gziped)
+      {
+         show_me("rcv gzip end=" << data_size) ;
+      }
+      socket->rcv_complete(received_bytes);
       Message msg;
       msg.data = buffer;
       msg.size = data_size;
+      if (stream_gziped)
+      {
+       msg.size |= GZIPED;
+       msg.unzip();
+      }
       msg.deallocator = DefaultMessageDeleter;
       queue->Add(msg);
     }
