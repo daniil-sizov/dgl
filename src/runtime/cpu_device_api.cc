@@ -32,7 +32,8 @@ class CPUDeviceAPI final : public DeviceAPI {
     ptr = memalign(alignment, nbytes);
     if (ptr == nullptr) throw std::bad_alloc();
 #else
-    int ret = posix_memalign(&ptr, alignment, nbytes);
+   // int ret = posix_memalign(&ptr, alignment, nbytes);
+    int ret = posix_memalign(&ptr, 64, nbytes);
     if (ret != 0) throw std::bad_alloc();
 #endif
     return ptr;

@@ -10,7 +10,7 @@
 #include <dgl/bcast.h>
 #include <limits>
 #include <algorithm>
-
+#include <immintrin.h>
 namespace dgl {
 namespace aten {
 namespace cpu {
@@ -25,6 +25,14 @@ namespace cpu {
  * \note it uses node parallel strategy, different threads are responsible
  *       for the computation of different nodes.
  */
+
+template<class T>
+struct Agregate {
+    T buff[120];
+    Agregate() { memset(buff,0,sizeof(buff)); }
+} __attribute__((__aligned__(16)));
+
+
 template <typename IdType, typename DType, typename Op>
 void SpMMSumCsr(
     const BcastOff& bcast,
@@ -41,6 +49,103 @@ void SpMMSumCsr(
           lhs_dim = bcast.lhs_len,
           rhs_dim = bcast.rhs_len;
   DType* O = out.Ptr<DType>();
+//  std::cout << "SpMMSumCsr" << std::endl;
+#pragma omp parallel for
+  for (IdType rid = 0; rid < csr.num_rows; ++rid) {
+    const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
+    
+    DType *out_off = O + rid * dim;
+  //  std::fill(out_off, out_off + dim, 0);
+       DType fast[dim] = {0};
+      // std::cout << fast << std::endl;
+     //  Agregate<DType> fast;
+  // std::cout << "dim=" << dim << std::endl;
+    for (IdType j = row_start; j < row_end; ++j) {
+      const IdType cid = indices[j];
+      const IdType eid = has_idx ? edges[j] : j;
+
+      if(!bcast.use_bcast)
+      {
+
+           
+
+        int64_t k = 0;     
+        for (; (k < dim) && (dim >=16) ; k+=16) {
+         //     const DType *from = X + cid * lhs_dim + k;
+
+              //  if( reinterpret_cast<std::size_t>(from) % 64 )
+              //  {
+              //    std::cout << "NAlign=" <<  from << std::endl;
+              //  }
+        //  __m512 lhsof_vec =  _mm512_load_ps( X + cid * lhs_dim + k );
+        //  __m512 fast_vec =  _mm512_load_ps( &fast[k] ); 
+        //   std::cout << "beg =" << (X + cid * lhs_dim + k) << "   fast=" << &fast[k]   << std::endl;
+          auto z = _mm512_add_ps ( _mm512_loadu_ps( X + cid * lhs_dim + k ), _mm512_loadu_ps( &fast[k] ));
+          _mm512_storeu_ps (&fast[k], z);
+          //  std::cout << "end" << std::endl;
+         // const DType *lhs_off = Op::use_lhs ? X + cid * lhs_dim + k : nullptr;
+         // const DType *rhs_off = Op::use_rhs ? W + eid * rhs_dim + k : nullptr;
+                   
+       //   fast[k]  += Op::Call(lhs_off, rhs_off);  
+        //  out_off[k] += Op::Call(lhs_off, rhs_off);
+          }  
+
+        for (; k < dim; ++k) {
+       
+        const int64_t lhs_add = bcast.use_bcast ? bcast.lhs_offset[k] : k;
+        const int64_t rhs_add = bcast.use_bcast ? bcast.rhs_offset[k] : k;
+        const DType *lhs_off =
+            Op::use_lhs ? X + cid * lhs_dim + lhs_add : nullptr;
+        const DType *rhs_off =
+            Op::use_rhs ? W + eid * rhs_dim + rhs_add : nullptr;
+         fast[k]  += Op::Call(lhs_off, rhs_off);  
+        //  out_off[k] += Op::Call(lhs_off, rhs_off);
+      }
+
+
+          continue;
+
+      }     
+
+      
+      
+      for (int64_t k = 0; k < dim; ++k) {
+       
+        const int64_t lhs_add = bcast.use_bcast ? bcast.lhs_offset[k] : k;
+        const int64_t rhs_add = bcast.use_bcast ? bcast.rhs_offset[k] : k;
+        const DType *lhs_off =
+            Op::use_lhs ? X + cid * lhs_dim + lhs_add : nullptr;
+        const DType *rhs_off =
+            Op::use_rhs ? W + eid * rhs_dim + rhs_add : nullptr;
+         fast[k]  += Op::Call(lhs_off, rhs_off);  
+        //  out_off[k] += Op::Call(lhs_off, rhs_off);
+      }      
+    }
+    memcpy(out_off,fast,sizeof(fast));
+  }
+}
+
+
+
+
+/*
+template <typename IdType, typename DType, typename Op>
+void SpMMSumCsr(
+    const BcastOff& bcast,
+    const CSRMatrix& csr,
+    NDArray ufeat, NDArray efeat,
+    NDArray out) {
+  const bool has_idx = !IsNullArray(csr.data);
+  const IdType* indptr = csr.indptr.Ptr<IdType>();
+  const IdType* indices = csr.indices.Ptr<IdType>();
+  const IdType* edges = csr.data.Ptr<IdType>();
+  const DType* X = ufeat.Ptr<DType>();
+  const DType* W = efeat.Ptr<DType>();
+  int64_t dim = bcast.out_len,
+          lhs_dim = bcast.lhs_len,
+          rhs_dim = bcast.rhs_len;
+  DType* O = out.Ptr<DType>();
+//  std::cout << "SpMMSumCsr" << std::endl;
 #pragma omp parallel for
   for (IdType rid = 0; rid < csr.num_rows; ++rid) {
     const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
@@ -61,6 +166,9 @@ void SpMMSumCsr(
     }
   }
 }
+
+*/
+
 
 /*!
  * \brief CPU kernel of SpMM on Coo format.
