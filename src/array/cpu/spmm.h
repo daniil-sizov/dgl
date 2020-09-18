@@ -10,10 +10,133 @@
 #include <dgl/bcast.h>
 #include <limits>
 #include <algorithm>
-
+#include <immintrin.h>
+#include "intel_spec.h"
+// #include "mkl.h"
 namespace dgl {
 namespace aten {
 namespace cpu {
+
+
+namespace op {
+
+//////////////////////////////// binary operators on CPU ////////////////////////////////
+template <typename DType>
+struct Add {
+  static constexpr bool use_lhs = true;
+  static constexpr bool use_rhs = true;
+  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
+    return *lhs_off + *rhs_off;
+  }
+};
+template <typename DType> constexpr bool Add<DType>::use_lhs;
+template <typename DType> constexpr bool Add<DType>::use_rhs;
+
+template <typename DType>
+struct Sub {
+  static constexpr bool use_lhs = true;
+  static constexpr bool use_rhs = true;
+  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
+    return *lhs_off - *rhs_off;
+  }
+};
+template <typename DType> constexpr bool Sub<DType>::use_lhs;
+template <typename DType> constexpr bool Sub<DType>::use_rhs;
+
+template <typename DType>
+struct Mul {
+  static constexpr bool use_lhs = true;
+  static constexpr bool use_rhs = true;
+  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
+    return *lhs_off * *rhs_off;
+  }
+};
+template <typename DType> constexpr bool Mul<DType>::use_lhs;
+template <typename DType> constexpr bool Mul<DType>::use_rhs;
+
+template <typename DType>
+struct Div {
+  static constexpr bool use_lhs = true;
+  static constexpr bool use_rhs = true;
+  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
+    return *lhs_off / *rhs_off;
+  }
+};
+template <typename DType> constexpr bool Div<DType>::use_lhs;
+template <typename DType> constexpr bool Div<DType>::use_rhs;
+
+template <typename DType>
+struct CopyLhs {
+  static constexpr bool use_lhs = true;
+  static constexpr bool use_rhs = false;
+  inline static DType Call(const DType* lhs_off, const DType* ) {
+    return *lhs_off;
+  }
+};
+template <typename DType> constexpr bool CopyLhs<DType>::use_lhs;
+template <typename DType> constexpr bool CopyLhs<DType>::use_rhs;
+
+template <typename DType>
+struct CopyRhs {
+  static constexpr bool use_lhs = false;
+  static constexpr bool use_rhs = true;
+  inline static DType Call(const DType* , const DType* rhs_off) {
+    return *rhs_off;
+  }
+};
+template <typename DType> constexpr bool CopyRhs<DType>::use_lhs;
+template <typename DType> constexpr bool CopyRhs<DType>::use_rhs;
+
+//////////////////////////////// Reduce operators on CPU ////////////////////////////////
+template <typename DType>
+struct Max {
+  static constexpr DType zero = -std::numeric_limits<DType>::infinity();
+  // return true if accum should be replaced
+  inline static DType Call(DType accum, DType val) {
+    return accum < val;
+  }
+};
+template <typename DType> constexpr DType Max<DType>::zero;
+
+template <typename DType>
+struct Min {
+  static constexpr DType zero = std::numeric_limits<DType>::infinity();
+  // return true if accum should be replaced
+  inline static DType Call(DType accum, DType val) {
+    return accum > val;
+  }
+};
+template <typename DType> constexpr DType Min<DType>::zero;
+
+#define SWITCH_OP(op, Op, ...)                                      \
+  do {                                                              \
+    if ((op) == "add") {                                            \
+      typedef dgl::aten::cpu::op::Add<DType> Op;                    \
+      { __VA_ARGS__ }                                               \
+    } else if ((op) == "sub") {                                     \
+      typedef dgl::aten::cpu::op::Sub<DType> Op;                    \
+      { __VA_ARGS__ }                                               \
+    } else if ((op) == "mul") {                                     \
+      typedef dgl::aten::cpu::op::Mul<DType> Op;                    \
+      { __VA_ARGS__ }                                               \
+    } else if ((op) == "div") {                                     \
+      typedef dgl::aten::cpu::op::Div<DType> Op;                    \
+      { __VA_ARGS__ }                                               \
+    } else if ((op) == "copy_lhs") {                                \
+      typedef dgl::aten::cpu::op::CopyLhs<DType> Op;                \
+      { __VA_ARGS__ }                                               \
+    } else if ((op) == "copy_rhs") {                                \
+      typedef dgl::aten::cpu::op::CopyRhs<DType> Op;                \
+      { __VA_ARGS__ }                                               \
+    } else {                                                        \
+      LOG(FATAL) << "Unsupported SpMM binary operator: " << op;     \
+    }                                                               \
+  } while (0)
+
+}  // namespace op
+
+
+
 
 /*!
  * \brief CPU kernel of SpMM on Csr format.
@@ -25,13 +148,16 @@ namespace cpu {
  * \note it uses node parallel strategy, different threads are responsible
  *       for the computation of different nodes.
  */
-template <typename IdType, typename DType, typename Op>
-void SpMMSumCsr(
-    const BcastOff& bcast,
+
+
+template<class IdType, class DType , class Op>
+struct SpMMSumCsrEngine {
+    static inline void call(const BcastOff& bcast,
     const CSRMatrix& csr,
-    NDArray ufeat, NDArray efeat,
-    NDArray out) {
-  const bool has_idx = !IsNullArray(csr.data);
+    NDArray& ufeat, NDArray& efeat,
+    NDArray& out ) {
+
+ const bool has_idx = !IsNullArray(csr.data);
   const IdType* indptr = csr.indptr.Ptr<IdType>();
   const IdType* indices = csr.indices.Ptr<IdType>();
   const IdType* edges = csr.data.Ptr<IdType>();
@@ -41,6 +167,7 @@ void SpMMSumCsr(
           lhs_dim = bcast.lhs_len,
           rhs_dim = bcast.rhs_len;
   DType* O = out.Ptr<DType>();
+
 #pragma omp parallel for
   for (IdType rid = 0; rid < csr.num_rows; ++rid) {
     const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
@@ -60,7 +187,128 @@ void SpMMSumCsr(
       }
     }
   }
-}
+ }  
+};
+
+template<class IdType, class DType>
+struct SpMMSumCsrEngine<IdType,DType, dgl::aten::cpu::op::CopyLhs<DType> > {
+    static inline void call(const BcastOff& bcast,
+    const CSRMatrix& csr,
+    NDArray& ufeat, NDArray& efeat,
+    NDArray& out ) {
+  typedef dgl::aten::cpu::op::CopyLhs<DType> Op;    
+  const bool has_idx = !IsNullArray(csr.data);
+  const IdType* indptr = csr.indptr.Ptr<IdType>();
+  const IdType* indices = csr.indices.Ptr<IdType>();
+  const IdType* edges = csr.data.Ptr<IdType>();
+  const DType* X = ufeat.Ptr<DType>();
+ // const DType* W = efeat.Ptr<DType>();
+  int64_t dim = bcast.out_len,
+          lhs_dim = bcast.lhs_len;
+          // rhs_dim = bcast.rhs_len;
+  DType* O = out.Ptr<DType>();
+
+  #pragma omp parallel for
+  for (IdType rid = 0; rid < csr.num_rows; ++rid) {
+    const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
+    DType *out_off = O + rid * dim;
+    std::fill(out_off, out_off + dim, 0);
+    for (IdType j = row_start; j < row_end; ++j) {
+      const IdType cid = indices[j];
+    //  const IdType eid = has_idx ? edges[j] : j;
+
+      if(!bcast.use_bcast)
+      {
+        intel::primitive::sum_update(out_off, X + cid * lhs_dim , dim );
+        continue;   
+      }
+      
+    
+      for (int64_t k = 0; k < dim; ++k) {
+        const int64_t lhs_add = bcast.use_bcast ? bcast.lhs_offset[k] : k;
+       // const int64_t rhs_add = bcast.use_bcast ? bcast.rhs_offset[k] : k;
+        const DType *lhs_off = X + cid * lhs_dim + lhs_add ;
+      //  const DType *rhs_off = Op::use_rhs ? W + eid * rhs_dim + rhs_add : nullptr;
+        out_off[k] += Op::Call(lhs_off, nullptr);
+      }
+    }
+  }
+ }  
+
+};
+
+
+/*
+template<class IdType, class DType>
+struct SpMMSumCsrEngine<IdType,DType, dgl::aten::cpu::op::Mul<DType> > {
+    static inline void call(const BcastOff& bcast,
+    const CSRMatrix& csr,
+    NDArray& ufeat, NDArray& efeat,
+    NDArray& out ) {
+  typedef dgl::aten::cpu::op::Mul<DType> Op;    
+  const bool has_idx = !IsNullArray(csr.data);
+  const IdType* indptr = csr.indptr.Ptr<IdType>();
+  const IdType* indices = csr.indices.Ptr<IdType>();
+  const IdType* edges = csr.data.Ptr<IdType>();
+  const DType* X = ufeat.Ptr<DType>();
+  const DType* W = efeat.Ptr<DType>();
+  int64_t dim = bcast.out_len,
+          lhs_dim = bcast.lhs_len,
+           rhs_dim = bcast.rhs_len;
+  DType* O = out.Ptr<DType>();
+
+#pragma omp parallel for
+  for (IdType rid = 0; rid < csr.num_rows; ++rid) {
+    const IdType row_start = indptr[rid], row_end = indptr[rid + 1];
+    DType *out_off = O + rid * dim;
+    std::fill(out_off, out_off + dim, 0);
+    for (IdType j = row_start; j < row_end; ++j) {
+      const IdType cid = indices[j];
+      const IdType eid = has_idx ? edges[j] : j;
+
+      if(!bcast.use_bcast)
+      {
+       
+        intel::primitive::mul_update(out_off, X + cid * lhs_dim , W + eid * rhs_dim, dim );
+        continue;   
+      }
+  
+       intel::primitive::mul_update_withfirst(out_off, X + cid * lhs_dim + bcast.lhs_offset[0] , W + eid * rhs_dim + bcast.rhs_offset[0], dim );
+      
+       continue;
+     
+      for (int64_t k = 0; k < dim; ++k) {
+      
+       const int64_t lhs_add = bcast.use_bcast ? bcast.lhs_offset[k] : k;
+        const int64_t rhs_add = bcast.use_bcast ? bcast.rhs_offset[k] : k;
+        const DType *lhs_off =
+            Op::use_lhs ? X + cid * lhs_dim + lhs_add : nullptr;
+        const DType *rhs_off =
+            Op::use_rhs ? W + eid * rhs_dim + rhs_add : nullptr;
+        out_off[k] += Op::Call(lhs_off, rhs_off);
+      }
+    }
+  }
+ }  
+
+};
+
+
+*/
+
+
+
+
+
+template <typename IdType, typename DType, typename Op>
+void SpMMSumCsr(
+    const BcastOff& bcast,
+    const CSRMatrix& csr,
+    NDArray ufeat, NDArray efeat,
+    NDArray out) {
+   SpMMSumCsrEngine<IdType,DType,Op>::call(bcast,csr,ufeat,efeat,out);
+   }
+
 
 /*!
  * \brief CPU kernel of SpMM on Coo format.
@@ -246,122 +494,6 @@ void SpMMCmpCoo(
   }
 }
 
-namespace op {
-
-//////////////////////////////// binary operators on CPU ////////////////////////////////
-template <typename DType>
-struct Add {
-  static constexpr bool use_lhs = true;
-  static constexpr bool use_rhs = true;
-  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
-    return *lhs_off + *rhs_off;
-  }
-};
-template <typename DType> constexpr bool Add<DType>::use_lhs;
-template <typename DType> constexpr bool Add<DType>::use_rhs;
-
-template <typename DType>
-struct Sub {
-  static constexpr bool use_lhs = true;
-  static constexpr bool use_rhs = true;
-  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
-    return *lhs_off - *rhs_off;
-  }
-};
-template <typename DType> constexpr bool Sub<DType>::use_lhs;
-template <typename DType> constexpr bool Sub<DType>::use_rhs;
-
-template <typename DType>
-struct Mul {
-  static constexpr bool use_lhs = true;
-  static constexpr bool use_rhs = true;
-  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
-    return *lhs_off * *rhs_off;
-  }
-};
-template <typename DType> constexpr bool Mul<DType>::use_lhs;
-template <typename DType> constexpr bool Mul<DType>::use_rhs;
-
-template <typename DType>
-struct Div {
-  static constexpr bool use_lhs = true;
-  static constexpr bool use_rhs = true;
-  inline static DType Call(const DType* lhs_off, const DType* rhs_off) {
-    return *lhs_off / *rhs_off;
-  }
-};
-template <typename DType> constexpr bool Div<DType>::use_lhs;
-template <typename DType> constexpr bool Div<DType>::use_rhs;
-
-template <typename DType>
-struct CopyLhs {
-  static constexpr bool use_lhs = true;
-  static constexpr bool use_rhs = false;
-  inline static DType Call(const DType* lhs_off, const DType* ) {
-    return *lhs_off;
-  }
-};
-template <typename DType> constexpr bool CopyLhs<DType>::use_lhs;
-template <typename DType> constexpr bool CopyLhs<DType>::use_rhs;
-
-template <typename DType>
-struct CopyRhs {
-  static constexpr bool use_lhs = false;
-  static constexpr bool use_rhs = true;
-  inline static DType Call(const DType* , const DType* rhs_off) {
-    return *rhs_off;
-  }
-};
-template <typename DType> constexpr bool CopyRhs<DType>::use_lhs;
-template <typename DType> constexpr bool CopyRhs<DType>::use_rhs;
-
-//////////////////////////////// Reduce operators on CPU ////////////////////////////////
-template <typename DType>
-struct Max {
-  static constexpr DType zero = -std::numeric_limits<DType>::infinity();
-  // return true if accum should be replaced
-  inline static DType Call(DType accum, DType val) {
-    return accum < val;
-  }
-};
-template <typename DType> constexpr DType Max<DType>::zero;
-
-template <typename DType>
-struct Min {
-  static constexpr DType zero = std::numeric_limits<DType>::infinity();
-  // return true if accum should be replaced
-  inline static DType Call(DType accum, DType val) {
-    return accum > val;
-  }
-};
-template <typename DType> constexpr DType Min<DType>::zero;
-
-#define SWITCH_OP(op, Op, ...)                                      \
-  do {                                                              \
-    if ((op) == "add") {                                            \
-      typedef dgl::aten::cpu::op::Add<DType> Op;                    \
-      { __VA_ARGS__ }                                               \
-    } else if ((op) == "sub") {                                     \
-      typedef dgl::aten::cpu::op::Sub<DType> Op;                    \
-      { __VA_ARGS__ }                                               \
-    } else if ((op) == "mul") {                                     \
-      typedef dgl::aten::cpu::op::Mul<DType> Op;                    \
-      { __VA_ARGS__ }                                               \
-    } else if ((op) == "div") {                                     \
-      typedef dgl::aten::cpu::op::Div<DType> Op;                    \
-      { __VA_ARGS__ }                                               \
-    } else if ((op) == "copy_lhs") {                                \
-      typedef dgl::aten::cpu::op::CopyLhs<DType> Op;                \
-      { __VA_ARGS__ }                                               \
-    } else if ((op) == "copy_rhs") {                                \
-      typedef dgl::aten::cpu::op::CopyRhs<DType> Op;                \
-      { __VA_ARGS__ }                                               \
-    } else {                                                        \
-      LOG(FATAL) << "Unsupported SpMM binary operator: " << op;     \
-    }                                                               \
-  } while (0)
-
-}  // namespace op
 
 }  // namespace cpu
 }  // namespace aten

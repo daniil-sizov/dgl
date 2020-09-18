@@ -81,7 +81,9 @@ else(MSVC)
   include(CheckCXXCompilerFlag)
   check_cxx_compiler_flag("-std=c++11"    SUPPORT_CXX11)
   set(CMAKE_C_FLAGS "-O2 -Wall -fPIC ${CMAKE_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "-O2 -Wall -fPIC -std=c++11 ${CMAKE_CXX_FLAGS}")
+#  set(CMAKE_CXX_FLAGS "-O2 -Wall -fPIC -std=c++11 ${CMAKE_CXX_FLAGS} -march=skylake-avx512")
+  set(CMAKE_CXX_FLAGS "-O2 -Wall -fPIC -std=c++11 ${CMAKE_CXX_FLAGS} -march=native")
+
 endif(MSVC)
 
 if(USE_OPENMP)
