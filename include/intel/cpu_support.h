@@ -1,7 +1,7 @@
 /*!
  *  Copyright (c) 2019 by Contributors
  * \file intel/cpu_support.h
- * \brief Intel CPU support 
+ * \brief Intel CPU support
  */
 #ifndef INTEL_CPU_SUPPORT_H_
 #define INTEL_CPU_SUPPORT_H_
@@ -16,11 +16,28 @@ namespace intel {
 template<class T>
 using Uptr = std::unique_ptr<T>;
 
-template<class T>
-class elem_wise_add_update :  public Xbyak::CodeGenerator {
-     typedef elem_wise_add_update<T> self;
-     std::size_t size;
-     bool applicable;
+
+  template<class T>
+  struct IntelKernel {
+      static bool enabled()
+      {
+           static bool r = (std::getenv("DGL_CPU_INTEL_KERNEL_ENABLED")) ? true : false;
+           return r;
+      }
+
+      static int64_t chunkSize() {
+             static int64_t chsize = (std::getenv("DGL_CPU_INTEL_KERNEL_CHUNKSIZE")) ?
+             static_cast<int64_t>(atoi( std::getenv("DGL_CPU_INTEL_KERNEL_CHUNKSIZE") )) : 0;
+      }
+  } ;
+
+
+ template <class T>
+ class elem_wise_add_update : public Xbyak::CodeGenerator
+ {
+   typedef elem_wise_add_update<T> self;
+   int64_t size;
+   bool applicable;
 
  public:
      explicit elem_wise_add_update(std::size_t _size) : size(_size), applicable(false) {
@@ -28,13 +45,16 @@ class elem_wise_add_update :  public Xbyak::CodeGenerator {
        if (current_cpu.has(Xbyak::util::Cpu::tAVX512F)) {
              /* prepare REMAINDER */
              mov(r8, rdx);    // rdx => size
-             and_(r8, 0xf);
+             and_(r8, 0xf);   // r8_modulo = size/16
+             cmp(rdx, 0x10);
+             xor_(r9, r9);
+             jl("remainder");
 
-             /*  decrease  divident */
+                 /*  decrease  divident */
              sub(rdx, r8);
              cmp(rdx, 0);
              jz("remainder");
-             xor_(r9, r9);
+             // xor_(r9, r9);
 
             L("for_i");
             vmovups(zmm0, ptr[rdi + r9*4]);
@@ -55,7 +75,7 @@ class elem_wise_add_update :  public Xbyak::CodeGenerator {
             dec(rax);
             kmovw(k1, eax);
 
-            const uint8_t ptr_3[7] = { 0x62, 0xb1, 0x7c, 0x49, 0x10, 0x04, 0x8f };
+            const uint8_t ptr_3[7] = {0x62, 0xb1, 0x7c, 0x49, 0x10, 0x04, 0x8f};
             db(ptr_3, sizeof(ptr_3)/sizeof(uint8_t));
 
             const uint8_t ptr_2[7] = { 0x62, 0xb1, 0x7c, 0x49, 0x10, 0x0c, 0x8e };
@@ -78,12 +98,17 @@ class elem_wise_add_update :  public Xbyak::CodeGenerator {
        return applicable;
      }
 
+     bool requiere_new_instance(int64_t _size) {
+            return _size != size;
+     }
+
+
+
      template<class ... P>
      void run(P ... args) {
          ((void(*)(P...))(this)->getCode())(args...);
      }
-};
-
+ };
 
 }  // namespace intel
 

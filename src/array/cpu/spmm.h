@@ -96,10 +96,17 @@ struct SpMMSumCsrCore<IdType, float, dgl::aten::cpu::op::CopyLhs<float> > {
   typedef intel::elem_wise_add_update<DType> ElemWiseUpd;
 
   /* Prepare an assembler code for this paricular dimension */
-  thread_local intel::Uptr< ElemWiseUpd > th_cpu_spec(new ElemWiseUpd(dim));
-/* Check if the code has been created */
+  thread_local intel::Uptr< ElemWiseUpd > th_cpu_spec((intel::IntelKernel<DType>::enabled())?
+   new ElemWiseUpd(dim) : nullptr);
+  /* Check if the code has been created */
   ElemWiseUpd* cpu_spec = (th_cpu_spec && th_cpu_spec->is_applicable()) ?
                           th_cpu_spec.get() : nullptr;
+  if (cpu_spec && cpu_spec->requiere_new_instance(dim))
+  {
+    std::cout << "from="<<cpu_spec->getSize() << " to=" << dim << std::endl;
+    th_cpu_spec.reset(new ElemWiseUpd(dim));
+    cpu_spec = (th_cpu_spec && th_cpu_spec->is_applicable()) ? th_cpu_spec.get() : nullptr;
+  }
 
 #pragma omp parallel for
   for (IdType rid = 0; rid < csr.num_rows; ++rid) {
@@ -204,10 +211,10 @@ void SpMMSumCoo(
  * \param ufeat The feature on source nodes.
  * \param efeat The feature on edges.
  * \param out The result feature on destination nodes.
- * \param argu Arg-Min/Max on source nodes, which refers the source node indices 
+ * \param argu Arg-Min/Max on source nodes, which refers the source node indices
  *        correspond to the minimum/maximum values of reduction result on
  *        destination nodes. It's useful in computing gradients of Min/Max reducer.
- * \param arge Arg-Min/Max on edges. which refers the source node indices 
+ * \param arge Arg-Min/Max on edges. which refers the source node indices
  *        correspond to the minimum/maximum values of reduction result on
  *        destination nodes. It's useful in computing gradients of Min/Max reducer.
  * \note It uses node parallel strategy, different threads are responsible
@@ -271,10 +278,10 @@ void SpMMCmpCsr(
  * \param ufeat The feature on source nodes.
  * \param efeat The feature on edges.
  * \param out The result feature on destination nodes.
- * \param argu Arg-Min/Max on source nodes, which refers the source node indices 
+ * \param argu Arg-Min/Max on source nodes, which refers the source node indices
  *        correspond to the minimum/maximum values of reduction result on
  *        destination nodes. It's useful in computing gradients of Min/Max reducer.
- * \param arge Arg-Min/Max on edges. which refers the source node indices 
+ * \param arge Arg-Min/Max on edges. which refers the source node indices
  *        correspond to the minimum/maximum values of reduction result on
  *        destination nodes. It's useful in computing gradients of Min/Max reducer.
  * \note it uses node parallel strategy, different threads are responsible
