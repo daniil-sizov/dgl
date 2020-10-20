@@ -103,7 +103,6 @@ struct SpMMSumCsrCore<IdType, float, dgl::aten::cpu::op::CopyLhs<float> > {
                           th_cpu_spec.get() : nullptr;
   if (cpu_spec && cpu_spec->requiere_new_instance(dim))
   {
-    std::cout << "from="<<cpu_spec->getSize() << " to=" << dim << std::endl;
     th_cpu_spec.reset(new ElemWiseUpd(dim));
     cpu_spec = (th_cpu_spec && th_cpu_spec->is_applicable()) ? th_cpu_spec.get() : nullptr;
   }
