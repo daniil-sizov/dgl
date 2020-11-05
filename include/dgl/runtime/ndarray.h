@@ -197,11 +197,12 @@ class NDArray {
    * \param shape The shape of the new array.
    * \param dtype The data type of the new array.
    * \param ctx The context of the Array.
+   * \param overflow Extra bytes to allocate for NdArray.
    * \return The created Array
    */
   DGL_DLL static NDArray Empty(std::vector<int64_t> shape,
                                DLDataType dtype,
-                               DLContext ctx);
+                               DLContext ctx, size_t overflow=0);
   /*!
    * \brief Create an empty NDArray with shared memory.
    * \param name The name of shared memory.

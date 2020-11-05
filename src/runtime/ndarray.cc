@@ -199,7 +199,7 @@ NDArray NDArray::EmptyShared(const std::string &name,
 
 NDArray NDArray::Empty(std::vector<int64_t> shape,
                        DLDataType dtype,
-                       DLContext ctx) {
+                       DLContext ctx, size_t overflow) {
   NDArray ret = Internal::Create(shape, dtype, ctx);
   // setup memory content
   size_t size = GetDataSize(ret.data_->dl_tensor);
@@ -207,7 +207,7 @@ NDArray NDArray::Empty(std::vector<int64_t> shape,
   if (size > 0)
     ret.data_->dl_tensor.data =
         DeviceAPI::Get(ret->ctx)->AllocDataSpace(
-            ret->ctx, size, alignment, ret->dtype);
+            ret->ctx, size+overflow, alignment, ret->dtype);
   return ret;
 }
 
