@@ -112,12 +112,26 @@ void SDDMMCoo(const BcastOff& bcast,
         X + Selector<LhsTarget>::Call(rid, eid, cid) * lhs_dim * reduce_size : nullptr;
       const DType* rhs_off = Op::use_rhs ?
         Y + Selector<RhsTarget>::Call(rid, eid, cid) * rhs_dim * reduce_size : nullptr;
-      if (std::is_same<Op, dgl::aten::cpu::sddmm_op::Dot<DType>>::value) {
-        for (int64_t k = 0; k < bcast.reduce_size; ++k) {
-          cpu_spec->run(out_off, lhs_off+k, rhs_off+k, dim);
-        }
-      } else {
-        cpu_spec->run(out_off, lhs_off, rhs_off, dim);
+
+      // if (std::is_same<Op, dgl::aten::cpu::sddmm_op::Dot<DType>>::value) {
+
+      //   // for (int64_t k = 0; k < bcast.reduce_size; ++k) {
+      //   //   cpu_spec->run(out_off, lhs_off+k, rhs_off+k, dim);
+      //   // }
+      //    cpu_spec->run(out_off, lhs_off , rhs_off , dim, bcast.reduce_size);
+
+      // } else {
+      //   cpu_spec->run(out_off, lhs_off, rhs_off, dim);
+      // }
+
+      //if (std::is_same<Op, dgl::aten::cpu::sddmm_op::Dot<DType>>::value)
+      if (std::is_same<Op, dgl::aten::cpu::sddmm_op::Dot<float>>::value)
+      {
+        cpu_spec->run(lhs_off, rhs_off, bcast.reduce_size ,out_off, dim);
+      }
+      else
+      {
+        cpu_spec->run(out_off, lhs_off, rhs_off, dim, bcast.reduce_size);
       }
     }
   } else {
@@ -136,7 +150,7 @@ void SDDMMCoo(const BcastOff& bcast,
         X + Selector<LhsTarget>::Call(rid, eid, cid) * lhs_dim + lhs_add * reduce_size : nullptr;
       const DType* rhs_off = Op::use_rhs ?
         Y + Selector<RhsTarget>::Call(rid, eid, cid) * rhs_dim + rhs_add * reduce_size : nullptr;
-      out_off[k] = Op::Call(lhs_off, rhs_off, bcast.reduce_size);
+      out_off[k] = Op::Call(lhs_off, rhs_off, reduce_size);
     }
   }
 #if !defined(_WIN32)

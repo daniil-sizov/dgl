@@ -348,6 +348,7 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
   const Xbyak::Reg64 &r_left_;
   const Xbyak::Reg64 &r_right;
   const Xbyak::Reg64 &r_size_;
+  const Xbyak::Reg64 &r_dot_size_;
 
   /* [functional] Does kernel is applicable on this machine ? */
   bool applicable_;
@@ -442,31 +443,31 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
                           supported_types> = true>
   void full_chunk_loop_operations() {
     typedef typename Operator::type IType;
-    alias_load<IType>(zmm0, ptr[r_out_ + r9 * sizeof(IType)]);
-    alias_load<IType>(zmm1, ptr[r_left_ + r9 * sizeof(IType)]);
+    alias_load<IType>(zmm0, ptr[r_out_ + r10 * sizeof(IType)]);
+    alias_load<IType>(zmm1, ptr[r_left_ + r10 * sizeof(IType)]);
     alias_ADD<IType>(zmm2, zmm0, zmm1);
-    alias_save<IType>(ptr[r_out_ + r9 * sizeof(IType)], zmm2);
+    alias_save<IType>(ptr[r_out_ + r10 * sizeof(IType)], zmm2);
   }
   template <class Operator,
             utils::Verify<Operator, ::dgl::aten::cpu::sddmm_op::CopyRhs,
                           supported_types> = true>
   void full_chunk_loop_operations() {
     typedef typename Operator::type IType;
-    alias_load<IType>(zmm0, ptr[r_out_ + r9 * sizeof(IType)]);
-    alias_load<IType>(zmm1, ptr[r_right + r9 * sizeof(IType)]);
+    alias_load<IType>(zmm0, ptr[r_out_ + r10 * sizeof(IType)]);
+    alias_load<IType>(zmm1, ptr[r_right + r10 * sizeof(IType)]);
     alias_ADD<IType>(zmm2, zmm0, zmm1);
-    alias_save<IType>(ptr[r_out_ + r9 * sizeof(IType)], zmm2);
+    alias_save<IType>(ptr[r_out_ + r10 * sizeof(IType)], zmm2);
   }
   template <class T>
   void loop_pre() {
-    alias_load<T>(zmm0, ptr[r_out_ + r9 * sizeof(T)]);
-    alias_load<T>(zmm1, ptr[r_left_ + r9 * sizeof(T)]);
-    alias_load<T>(zmm2, ptr[r_right + r9 * sizeof(T)]);
+    alias_load<T>(zmm0, ptr[r_out_ + r10 * sizeof(T)]);
+    alias_load<T>(zmm1, ptr[r_left_ + r10 * sizeof(T)]);
+    alias_load<T>(zmm2, ptr[r_right + r10 * sizeof(T)]);
   }
   template <class T>
   void loop_post() {
     alias_ADD<T>(zmm2, zmm0, zmm2);
-    alias_save<T>(ptr[r_out_ + r9 * sizeof(T)], zmm2);
+    alias_save<T>(ptr[r_out_ + r10 * sizeof(T)], zmm2);
   }
   template <class Operator, utils::Verify<Operator, ::dgl::aten::cpu::sddmm_op::Add,
                                           supported_types> = true>
@@ -514,12 +515,15 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
     loop_post<IType>();
   }
 
+
+
+
   template <class Operator,
             utils::Verify<Operator, ::dgl::aten::cpu::sddmm_op::CopyLhs,
                           supported_types> = true>
   void remainder_operations(const Xbyak::Opmask mask) {
     typedef typename Operator::type IType;
-    alias_load<IType>(make_zmm(zmm2) | mask, ptr[r_left_ + r9 * sizeof(IType)]);
+    alias_load<IType>(make_zmm(zmm2) | mask, ptr[r_left_ + r10 * sizeof(IType)]);
   }
 
   template <class Operator,
@@ -527,14 +531,14 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
                           supported_types> = true>
   void remainder_operations(const Xbyak::Opmask mask) {
     typedef typename Operator::type IType;
-    alias_load<IType>(make_zmm(zmm2) | mask, ptr[r_right + r9 * sizeof(IType)]);
+    alias_load<IType>(make_zmm(zmm2) | mask, ptr[r_right + r10 * sizeof(IType)]);
   }
 
   template <class T>
   void remainder_fetch_LR(const Xbyak::Opmask mask) {
-    alias_load<T>(make_zmm(zmm2) | mask, ptr[r_left_ + r9 * sizeof(T)]);
-    alias_load<T>(make_zmm(zmm1) | mask, ptr[r_right + r9 * sizeof(T)]);
-    alias_load<T>(make_zmm(zmm0) | mask, ptr[r_out_ + r9 * sizeof(T)]);
+    alias_load<T>(make_zmm(zmm2) | mask, ptr[r_left_ + r10 * sizeof(T)]);
+    alias_load<T>(make_zmm(zmm1) | mask, ptr[r_right + r10 * sizeof(T)]);
+    alias_load<T>(make_zmm(zmm0) | mask, ptr[r_out_ + r10 * sizeof(T)]);
   }
 
   template <class Operator, utils::Verify<Operator, ::dgl::aten::cpu::sddmm_op::Mul,
@@ -583,16 +587,18 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
         r_left_(rsi),
         r_right(rdx),
         r_size_(rcx),
+        r_dot_size_(r9),
         applicable_(false) {
     static Xbyak::util::Cpu current_cpu;
-
     /* Default case for all */
     if (current_cpu.has(Xbyak::util::Cpu::tAVX512F)) {
+
+
       /* prepare REMAINDER */
       mov(r8, r_size_);
       and_(r8,
            UNIT_PER_REG - 1);  // r8_modulo = size/(sizeof(zmm)/sizeof(float))
-      xor_(r9, r9);            // reset r9
+      xor_(r10, r10);            // reset r10
       cmp(r_size_, UNIT_PER_REG);  // if ( size < 16 ) {  }
       jl("remainder");
 
@@ -602,9 +608,11 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
       jz("remainder");
 
       L("for_i");
+
       full_chunk_loop_operations<Op>();
-      add(r9, UNIT_PER_REG);  // r9+=sizeof(zmm)/sizeof(float)
-      cmp(r_size_, r9);       // more full chunks ?
+
+      add(r10, UNIT_PER_REG);  // r10+=sizeof(zmm)/sizeof(float)
+      cmp(r_size_, r10);       // more full chunks ?
       jnz("for_i");
 
       L("remainder");
@@ -617,10 +625,10 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
       dec(rax);        // k1= (1 << r8 )-1
       kmovw(k1, eax);  // set bitmask
       alias_load<DType>(make_zmm(zmm0) | k1,
-                        ptr[r_out_ + r9 * UNIT_SIZE_BYTES]);
+                        ptr[r_out_ + r10 * UNIT_SIZE_BYTES]);
       remainder_operations<Op>(k1);
       alias_ADD<DType>(zmm2, zmm2, zmm0);
-      alias_save<DType>(ptr[r_out_ + r9 * UNIT_SIZE_BYTES],
+      alias_save<DType>(ptr[r_out_ + r10 * UNIT_SIZE_BYTES],
                         make_zmm(zmm2) | k1);
       L("done");
       applicable_ = true;
@@ -633,6 +641,209 @@ class ElemWiseUpdate : public Xbyak::CodeGenerator {
 
   template <class... P>
   void run(P... args) {
+    ((void (*)(P...))(this)->getCode())(args...);
+  }
+};
+
+template <>
+class ElemWiseUpdate<::dgl::aten::cpu::sddmm_op::Dot<float>> : public Xbyak::CodeGenerator
+{
+public:
+  //typedef typename Op::type DType;
+  typedef float DType ;
+  static_assert(
+      std::is_base_of<std::true_type,
+                      utils::has_type<DType, supported_types>>::value,
+      "Use case fail dgl::ElemWiseUpdate< Operator<DType> > DType is not "
+      "supported !");
+
+protected:
+
+  const Xbyak::Reg64 &r_left_;
+  const Xbyak::Reg64 &r_right;
+  const Xbyak::Reg64 &r_dot_size_;
+  const Xbyak::Reg64 &r_out_;
+  const Xbyak::Reg64 &r_size_;
+
+
+  /* [functional] Does kernel is applicable on this machine ? */
+  bool applicable_;
+
+public:
+  static constexpr int UNIT_SIZE_BYTES = sizeof(DType);
+  static constexpr int BITS_IN_BYTES = 8;
+  static constexpr int REG_BIT_SIZE = 512;
+  static constexpr int UNIT_PER_REG =
+      REG_BIT_SIZE / (UNIT_SIZE_BYTES * BITS_IN_BYTES);
+
+
+  // ElemWiseUpdate()
+  //     : r_out_(rdi),
+  //       r_left_(rsi),
+  //       r_right(rdx),
+  //       r_size_(rcx),
+  //       r_dot_size_(r9),
+  //       applicable_(false)
+  // ElemWiseUpdate()
+  //     : r_left_(rdi),
+  //       r_right(rsi),
+  //       r_dot_size_(rdx),
+  //       r_out_(rcx),
+  //       r_size_(r9),
+  //       applicable_(false)
+  // {
+  //   static Xbyak::util::Cpu current_cpu;
+  //   /* Default case for all */
+  //   if (current_cpu.has(Xbyak::util::Cpu::tAVX512F))
+  //   {
+  //     xor_(r10,r10);
+  //     xor_(r11, r11);
+  //     L("for_i");
+  //     dot_product();
+  //     inc(r10);
+  //     mov(r11,r10);
+  //     imul(r11, rdx);
+  //     add(rsi,r11);
+  //     add(rdi,r11);
+  //     vmovss(ptr[r_out_ + r10 * 4],xmm0);
+  //     cmp(r10,r9);
+  //     jne("for_i");
+  //     applicable_ = true;
+  //     log_intel("AVX512F cpu kernel is ready");
+  //   }
+  //   ret();
+  // }
+  // // rdi (left), rsi(right) , rdx(size),
+  // void dot_product() {
+  //   vxorps(xmm0, xmm0, xmm0);
+  //   test(rdx, rdx);
+  //   je("end", T_NEAR);
+  //   xor_(rax, rax);
+  //   cmp(rdx, 16);
+  //   jl("remainder");
+  //   vxorps(zmm3, zmm3, zmm3);
+  //   vxorps(zmm2, zmm2, zmm2);
+  //   mov(r8, rdx);
+  //   and_(r8, 16 - 1);
+  //   sub(rdx, r8);
+  //   L("full_chunk");
+  //   vmovups(zmm0, ptr[rdi + rax * 4]);
+  //   vmovups(zmm1, ptr[rsi + rax * 4]);
+  //   vmulps(zmm2, zmm1, zmm0);
+  //   vaddps(zmm3, zmm2, zmm3);
+  //   add(rax, 16);
+  //   cmp(rdx, rax);
+  //   jne("full_chunk");
+  //   vextractf64x4(ymm0, zmm3, 0x0);
+  //   vextractf64x4(ymm1, zmm3, 0x1);
+  //   vaddps(ymm3, ymm1, ymm0);
+  //   vextractf128(xmm1, ymm3, 0x0);
+  //   vextractf128(xmm2, ymm3, 0x1);
+  //   vaddps(xmm0, xmm1, xmm2);
+  //   vshufps(xmm1, xmm0, xmm0, 0xb1);
+  //   vaddps(xmm0, xmm1, xmm0);
+  //   vshufps(xmm1, xmm0, xmm0, 0x02);
+  //   vaddps(xmm0, xmm1, xmm0);
+  //   cmp(r8, 0);
+  //   je("end");
+  //   L("set_remainder");
+  //   add(rdx, r8);
+  //   L("remainder");
+  //   vmovss(xmm1, ptr[rdi + rax * 4]);
+  //   vfmadd231ss(xmm0, xmm1, ptr[rsi + rax * 4]);
+  //   inc(rax);
+  //   cmp(rdx, rax);
+  //   jne("remainder");
+  //   L("end");
+  // }
+
+  ElemWiseUpdate()
+      : r_left_(rdi),
+        r_right(rsi),
+        r_dot_size_(rdx),
+        r_out_(rcx),
+        r_size_(r8),
+        applicable_(false)
+  {
+    static Xbyak::util::Cpu current_cpu;
+    /* Default case for all */
+    if (current_cpu.has(Xbyak::util::Cpu::tAVX512F))
+    {
+    //  push(r10);
+     // push(r11);
+     // push(r15);
+      xor_(r15,r15);
+      xor_(r10, r10);
+      xor_(r11, r11);
+      L("for_i");
+      dot_product();
+      inc(r10);
+      mov(r11, r10);
+      imul(r11, rdx);
+      add(rsi, r11);
+      add(rdi, r11);
+     // vmovss(ptr[r_out_ + r10 * 4], xmm0);
+      inc(r15);
+      cmp(r10, r_size_);
+      jne("for_i");
+     // pop(r11);
+     // pop(r10);
+     // pop(r15);
+      applicable_ = true;
+      log_intel("AVX512F cpu kernel is ready");
+    }
+    ret();
+  }
+  // rdi (left), rsi(right) , rdx(size),
+  void dot_product()
+  {
+    vxorps(xmm0, xmm0, xmm0);
+    test(rdx, rdx);
+    je("end", T_NEAR);
+    xor_(rax, rax);
+    cmp(rdx, 16);
+    jl("remainder");
+    vxorps(zmm3, zmm3, zmm3);
+    vxorps(zmm2, zmm2, zmm2);
+    mov(r9, rdx);
+    and_(r9, 16 - 1);
+    sub(rdx, r9);
+    L("full_chunk");
+    vmovups(zmm0, ptr[rdi + rax * 4]);
+    vmovups(zmm1, ptr[rsi + rax * 4]);
+    vmulps(zmm2, zmm1, zmm0);
+    vaddps(zmm3, zmm2, zmm3);
+    add(rax, 16);
+    cmp(rdx, rax);
+    jne("full_chunk");
+    vextractf64x4(ymm0, zmm3, 0x0);
+    vextractf64x4(ymm1, zmm3, 0x1);
+    vaddps(ymm3, ymm1, ymm0);
+    vextractf128(xmm1, ymm3, 0x0);
+    vextractf128(xmm2, ymm3, 0x1);
+    vaddps(xmm0, xmm1, xmm2);
+    vshufps(xmm1, xmm0, xmm0, 0xb1);
+    vaddps(xmm0, xmm1, xmm0);
+    vshufps(xmm1, xmm0, xmm0, 0x02);
+    vaddps(xmm0, xmm1, xmm0);
+    cmp(r9, 0);
+    je("end");
+    L("set_remainder");
+    add(rdx, r9);
+    L("remainder");
+    vmovss(xmm1, ptr[rdi + rax * 4]);
+    vfmadd231ss(xmm0, xmm1, ptr[rsi + rax * 4]);
+    inc(rax);
+    cmp(rdx, rax);
+    jne("remainder");
+    L("end");
+  }
+
+  bool applicable() const { return applicable_; }
+
+  template <class... P>
+  void run(P... args)
+  {
     ((void (*)(P...))(this)->getCode())(args...);
   }
 };

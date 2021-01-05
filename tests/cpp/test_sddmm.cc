@@ -379,7 +379,7 @@ void _TestSddmmDot() {
       for (int64_t k = 0; k < len; k++) {
         cpu_spec->run(out_intel_kernel, lhs+k, rhs+k, dim);
       }
-      CheckResult(exp, out, out_intel_kernel, dim);                        
+      CheckResult(exp, out, out_intel_kernel, dim);
     } else {
       IDX* out_intel_kernel = nullptr;
       CheckResult(exp, out, out_intel_kernel, dim);
@@ -387,8 +387,118 @@ void _TestSddmmDot() {
   }
 }
 
+template <class T>
+void DotReduce(T *exp, int64_t exp_dim,  T *lhs, T *rhs, int64_t reduce_size)
+{
+  for (int64_t i = 0; i < exp_dim; i++)
+  {
+    T res = 0;
+    for (int64_t r = 0; r < reduce_size; r++)
+    {
+      res += lhs[i * reduce_size + r] * rhs[i * reduce_size + r];
+    }
+    exp[i] = res;
+  }
+}
+template<class T>
+using Vec = std::vector<T>;
+
+template <typename IDX>
+void _NewTestSddmmDot()
+{
+
+  const size_t reduce_size = 20;
+
+   for (size_t i = 0; i < sizeof(sizes_sddmm) / sizeof(int64_t); i++)
+  {
+    int64_t dim = sizes_sddmm[i];
+
+    for (size_t r = 1; r < reduce_size; r++)
+    {
+       size_t reduce_size_LR  = dim*r;
+
+       Vec<IDX> out(dim), exp(dim), lhs(reduce_size_LR), rhs(reduce_size_LR);
+
+       GenerateZeroData((IDX*)out.data(), dim);
+       GenerateZeroData((IDX *)exp.data(), dim);
+       GenerateRandomData((IDX *)lhs.data(), reduce_size_LR);
+       GenerateRandomData((IDX *)rhs.data(), reduce_size_LR);
+
+       // Calculation of expected output - 'exp'
+       DotReduce((IDX *)exp.data(), dim, (IDX *)lhs.data(), (IDX *)rhs.data(), r);
+
+       for (size_t k = 0; k < dim; ++k)
+       {
+         size_t offset = r * k;
+         out[k] = ns_op::Dot<IDX>::Call((IDX*)lhs.data() + offset, (IDX*)rhs.data() + offset, r);
+      }
+
+       CheckResult((IDX*)exp.data(), (IDX*)out.data(), (IDX*)NULL, dim);
+
+         auto *cpu_spec =
+             generic_ElemWiseUpd<dgl::ElemWiseUpdate<ns_op::Dot<IDX>>>();
+         if (cpu_spec)
+         {
+           Vec<IDX> out_intel_kernel(dim);
+           GenerateZeroData((IDX*)out_intel_kernel.data(), dim);
+           cpu_spec->run((IDX*)lhs.data() , (IDX*)rhs.data() , r, (IDX*)out_intel_kernel.data(), dim);
+        //   CheckResult(exp, out_intel_kernel, (IDX *)NULL, dim);
+         }
+         else
+         {
+              std::cout << "Not" << std::endl;
+         }
+    }
+
+
+  }
+
+
+  // for (size_t i = 0; i < sizeof(sizes_sddmm) / sizeof(int64_t); i++)
+  // {
+  //   int64_t dim = sizes_sddmm[i];
+  //   IDX out[dim], exp[dim], lhs[dim], rhs[dim];
+  //   int64_t len = 0;
+
+  //   GenerateZeroData(out, dim);
+  //   GenerateZeroData(exp, dim);
+  //   GenerateRandomData(lhs, dim*8);
+  //   GenerateRandomData(rhs, dim*8);
+  //   GenerateRandomLength(len, dim);
+
+  //   // Calculation of expected output - 'exp'
+
+  //   Dot(exp, lhs, rhs, dim, len);
+
+  //   // Calculation of output using legacy path - 'out'
+  //   for (int64_t k = 0; k < dim; k++)
+  //   {
+  //     out[k] = ns_op::Dot<IDX>::Call(lhs + k, rhs + k, len);
+  //   }
+
+  //   // Calculation of output using intel path - 'out_intel_kernel'
+  //   auto *cpu_spec =
+  //       generic_ElemWiseUpd<dgl::ElemWiseUpdate<ns_op::Dot<IDX>>>();
+  //   if (cpu_spec)
+  //   {
+  //     IDX out_intel_kernel[dim];
+  //     GenerateZeroData(out_intel_kernel, dim);
+  //     for (int64_t k = 0; k < len; k++)
+  //     {
+  //       cpu_spec->run(out_intel_kernel, lhs + k, rhs + k, dim);
+  //     }
+  //     CheckResult(exp, out, out_intel_kernel, dim);
+  //   }
+  //   else
+  //   {
+  //     IDX *out_intel_kernel = nullptr;
+  //     CheckResult(exp, out, out_intel_kernel, dim);
+  //   }
+  // }
+}
+
 TEST(SddmmTest, TestSddmmDot) {
-  _TestSddmmDot<float>();
-  _TestSddmmDot<double>();
+  _NewTestSddmmDot<float>();
+ // _TestSddmmDot<double>();
 }
 #endif
