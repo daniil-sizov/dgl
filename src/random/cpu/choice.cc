@@ -71,11 +71,16 @@ void RandomEngine::UniformChoice(IdxType num, IdxType population, IdxType* out, 
       // k^2 / (1-k) * population, which means in the worst case scenario,
       // the time complexity is O(population^2). In practice, we use 1/10 since
       // std::unordered_set is pretty slow.
-      std::unordered_set<IdxType> selected;
-      while (selected.size() < num) {
-        selected.insert(RandInt(population));
+       *out=RandInt(population); 
+       auto b = out + 1;
+       auto e = b + num -1 ; 
+      while(b!=e)
+      {  auto v = RandInt(population);
+         auto it=std::find(out,b+1,v);
+         if(it!=b+1) continue;
+         *b++=v;     
       }
-      std::copy(selected.begin(), selected.end(), out);
+    //  std::copy(selected.begin(), selected.end(), out);
     } else {
       // reservoir algorithm
       // time: O(population), space: O(num)
