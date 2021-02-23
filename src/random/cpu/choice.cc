@@ -75,10 +75,11 @@ void RandomEngine::UniformChoice(IdxType num, IdxType population, IdxType* out, 
        auto b = out + 1;
        auto e = b + num -1 ; 
       while(b!=e)
-      {  auto v = RandInt(population);
-         auto it=std::find(out,b+1,v);
-         if(it!=b+1) continue;
-         *b++=v;     
+      {  
+         *b = RandInt(population);
+         auto it=std::find(out,b,*b);
+         if(it!=b) continue;
+         ++b;     
       }
     //  std::copy(selected.begin(), selected.end(), out);
     } else {
