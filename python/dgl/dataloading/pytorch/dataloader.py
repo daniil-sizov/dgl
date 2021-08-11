@@ -13,7 +13,7 @@ from ...ndarray import NDArray as DGLNDArray
 from ... import backend as F
 from ...base import DGLError
 from ...utils import to_dgl_context
-
+from ..._ffi.function import _init_api
 __all__ = ['NodeDataLoader', 'EdgeDataLoader', 'GraphDataLoader',
            # Temporary exposure.
            '_pop_subgraph_storage', '_pop_blocks_storage',
@@ -479,6 +479,41 @@ class NodeDataLoader:
     """
     collator_arglist = inspect.getfullargspec(NodeCollator).args
 
+    def worker_init_function(self, id):
+        import os
+        from dgl.dataloading import cpu_affinity
+        '''
+        We have only main thread so PID equal to TID
+        Example: 
+        --num-workers=3
+        you should set
+        cores are from { 1.....N }
+        export DGL_WORKERS_AFFINITY="7,15,9"
+                 -> worker0 is pinned to core 7
+                 -> worker1 is pinned to core 15
+                 -> worker2 is pinned to core 9 
+        '''
+        env_string = "DGL_WORKERS_AFFINITY"
+        env_dgl_affinity = os.getenv(env_string, None)
+
+        if env_dgl_affinity is not None:
+            current_tid=os.getpid()
+            values = env_dgl_affinity.split(',')
+            if id < len(values):
+                pin_cores = { (int(values[int(id)])) }
+                os.sched_setaffinity(current_tid, pin_cores)
+                print(f'#### Worker init function {id} #### getpid={os.getpid()} -> core {values[int(id)]}')
+                #cpu_affinity.PinOMPThreads([30+id])
+            else:
+                print(f'ERROR: incorect value of {env_string}')
+
+
+
+
+
+
+
+
     def __init__(self, g, nids, block_sampler, device=None, use_ddp=False, ddp_seed=0, **kwargs):
         collator_kwargs = {}
         dataloader_kwargs = {}
@@ -487,6 +522,9 @@ class NodeDataLoader:
                 collator_kwargs[k] = v
             else:
                 dataloader_kwargs[k] = v
+        dataloader_kwargs['worker_init_fn'] = self.worker_init_function
+        dataloader_kwargs["persistent_workers"] = True
+
 
         if isinstance(g, DistGraph):
             if device is None:
@@ -513,6 +551,7 @@ class NodeDataLoader:
                 block_sampler.set_output_context(to_dgl_context(device))
 
             self.collator = _NodeCollator(g, nids, block_sampler, **collator_kwargs)
+
             self.use_scalar_batcher, self.scalar_batcher, self.dataloader, self.dist_sampler = \
                 _init_dataloader(self.collator, device, dataloader_kwargs, use_ddp, ddp_seed)
 
