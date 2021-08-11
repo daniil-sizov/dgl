@@ -71,6 +71,12 @@ class MultiLayerNeighborSampler(BlockSampler):
         self.prob_arrays = None
 
     def sample_frontier(self, block_id, g, seed_nodes):
+        # block_id => numer warstwy ?
+        # seed_nodes =>  batch_nodes
+        #import pdb
+        #pdb.set_trace()
+        import os
+        print (f'sample_frontier {os.getpid()}')
         fanout = self.fanouts[block_id]
         if isinstance(g, distributed.DistGraph):
             if fanout is None:
@@ -85,6 +91,8 @@ class MultiLayerNeighborSampler(BlockSampler):
             else:
                 self._build_fanout(block_id, g)
                 self._build_prob_arrays(g)
+
+
 
                 frontier = sampling.sample_neighbors(
                     g, seed_nodes, self.fanout_arrays[block_id],

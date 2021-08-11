@@ -8,6 +8,7 @@ import dgl.nn.pytorch as dglnn
 import time
 import argparse
 import tqdm
+import dgl.dataloading as DD
 
 from model import SAGE
 from load_graph import load_reddit, inductive_split, load_ogb
@@ -59,9 +60,11 @@ def run(args, device, data):
         train_g = train_g.formats(['csc'])
         train_g = train_g.to(device)
         dataloader_device = device
-
+    import os
+    #print('OMP_NUM_THREAD=',os.environ['OMP_NUM_THREADS'])
+    #print('PYTHONPATH=',os.environ['PYTHONPATH'])
     # Create PyTorch DataLoader for constructing blocks
-    sampler = dgl.dataloading.MultiLayerNeighborSampler(
+    sampler = DD.MultiLayerNeighborSampler(
         [int(fanout) for fanout in args.fan_out.split(',')])
     dataloader = dgl.dataloading.NodeDataLoader(
         train_g,
@@ -88,7 +91,11 @@ def run(args, device, data):
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
         tic_step = time.time()
+
+        # blocks => ? podgraf dla batcha dla wartstwy
         for step, (input_nodes, seeds, blocks) in enumerate(dataloader):
+            import os
+            print(f'MAIN {os.getpid()} ')
             # Load the input features as well as output labels
             batch_inputs, batch_labels = load_subtensor(train_nfeat, train_labels,
                                                         seeds, input_nodes, device)
@@ -130,7 +137,9 @@ if __name__ == '__main__':
     argparser.add_argument('--num-hidden', type=int, default=16)
     argparser.add_argument('--num-layers', type=int, default=2)
     argparser.add_argument('--fan-out', type=str, default='10,25')
+    #argparser.add_argument('--batch-size', type=int, default=1000)
     argparser.add_argument('--batch-size', type=int, default=1000)
+
     argparser.add_argument('--log-every', type=int, default=20)
     argparser.add_argument('--eval-every', type=int, default=5)
     argparser.add_argument('--lr', type=float, default=0.003)
@@ -147,7 +156,9 @@ if __name__ == '__main__':
                                 "be undesired if they cannot fit in GPU memory at once. "
                                 "This flag disables that.")
     args = argparser.parse_args()
-
+    
+    
+    
     if args.gpu >= 0:
         device = th.device('cuda:%d' % args.gpu)
     else:

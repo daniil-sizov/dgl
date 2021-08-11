@@ -100,5 +100,8 @@ class AsyncTransferer(object):
         transfer_id = _CAPI_DGLAsyncTransfererStartTransfer(self._handle, tensor, ctx)
         return Transfer(transfer_id, self._handle)
 
+def SetCores(x):
+    x = F.to_dgl_nd(F.tensor(x, dtype=F.int64))
+    _CAPI_SetCores(x)
 
 _init_api("dgl.dataloading.async_transferer")

@@ -158,7 +158,12 @@ def sample_neighbors(g, nodes, fanout, edge_dir='in', prob=None, replace=False,
                 prob_arrays.append(F.to_dgl_nd(g.edges[etype].data[prob]))
             else:
                 prob_arrays.append(nd.array([], ctx=nd.cpu()))
+    import os
 
+    #excluded_cores = {33, 34}
+    #os.sched_setaffinity(os.getpid(), excluded_cores)
+    #os.sched_setaffinity(os.getpid(), os.sched_getaffinity(os.getpid()).difference(excluded_cores))
+    #print(f'_CAPI_DGLSampleNeighbors PID={os.getpid()} cpu_count={os.cpu_count()} get_aff={os.sched_getaffinity(os.getpid())}')
     subgidx = _CAPI_DGLSampleNeighbors(g._graph, nodes_all_types, fanout_array,
                                        edge_dir, prob_arrays, replace)
     induced_edges = subgidx.induced_edges

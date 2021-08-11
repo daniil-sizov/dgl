@@ -248,6 +248,7 @@ class BlockSampler(object):
                     for ntype, nodes in seed_nodes_in.items()}
             else:
                 seed_nodes_in = seed_nodes_in.to(graph_device)
+
             frontier = self.sample_frontier(block_id, g, seed_nodes_in)
 
             # Removing edges from the frontier for link prediction training falls

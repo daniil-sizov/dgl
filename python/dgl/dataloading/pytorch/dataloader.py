@@ -13,7 +13,7 @@ from ...ndarray import NDArray as DGLNDArray
 from ... import backend as F
 from ...base import DGLError
 from ...utils import to_dgl_context
-
+from ..._ffi.function import _init_api
 __all__ = ['NodeDataLoader', 'EdgeDataLoader', 'GraphDataLoader',
            # Temporary exposure.
            '_pop_subgraph_storage', '_pop_blocks_storage',
@@ -478,7 +478,13 @@ class NodeDataLoader:
         single-GPU and the whole graph does not fit in GPU memory.
     """
     collator_arglist = inspect.getfullargspec(NodeCollator).args
-
+    def worker_custom_fn(self,id):
+        import os
+        from dgl.dataloading import async_transferer
+        async_transferer.SetCores([27,28])
+        #_CAPI_SetCores([4,5])
+        v=os.getenv("KUPA", "value does not exist")
+        print(f"############## WORKER INIT {v} ##########{id} => {os.getpid()}")
     def __init__(self, g, nids, block_sampler, device=None, use_ddp=False, ddp_seed=0, **kwargs):
         collator_kwargs = {}
         dataloader_kwargs = {}
@@ -487,7 +493,11 @@ class NodeDataLoader:
                 collator_kwargs[k] = v
             else:
                 dataloader_kwargs[k] = v
-
+        dataloader_kwargs['worker_init_fn'] = self.worker_custom_fn
+        dataloader_kwargs["persistent_workers"] = True
+        import os
+        z=os.getenv("KUPA", "value does not exist")
+        print(f"############## TRAIN PROC {z} {os.getpid()}")
         if isinstance(g, DistGraph):
             if device is None:
                 # for the distributed case default to the CPU
@@ -511,6 +521,7 @@ class NodeDataLoader:
             num_workers = dataloader_kwargs.get('num_workers', 0)
             if callable(getattr(block_sampler, "set_output_context", None)) and num_workers == 0:
                 block_sampler.set_output_context(to_dgl_context(device))
+            # self.dataloader['worker_init_fn'] = self.worker_custom_fn()
 
             self.collator = _NodeCollator(g, nids, block_sampler, **collator_kwargs)
             self.use_scalar_batcher, self.scalar_batcher, self.dataloader, self.dist_sampler = \
@@ -527,10 +538,13 @@ class NodeDataLoader:
 
     def __iter__(self):
         """Return the iterator of the data loader."""
+
         if self.is_distributed:
             # Directly use the iterator of DistDataLoader, which doesn't copy features anyway.
             return iter(self.dataloader)
         else:
+            import os
+            print(f"[info]: NodeDataLoader __iter__( ) -> _NodeDataLoaderIter(self)  {os.getpid()}")
             return _NodeDataLoaderIter(self)
 
     def __len__(self):

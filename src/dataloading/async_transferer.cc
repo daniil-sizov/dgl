@@ -12,6 +12,22 @@
 #include <dgl/runtime/device_api.h>
 #include <vector>
 #include <utility>
+#include <dgl/array.h>
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif 
+#include <sched.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <stdio.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <sys/resource.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <omp.h>
 
 #ifdef DGL_USE_CUDA
 #include <cuda_runtime.h>
@@ -110,6 +126,45 @@ TransferId AsyncTransferer::GenerateId() {
   return ++next_id_;
 }
 
+#ifndef SYS_gettid
+#error "SYS_gettid unavailable on this system"
+#endif
+
+#define gettid() ((pid_t)syscall(SYS_gettid))
+
+void setCores(const std::vector<int64_t>& cores) {
+
+ cpu_set_t set;
+ CPU_ZERO(&set);
+ for(auto core : cores)
+ {
+    CPU_SET( core , &set);
+ }
+
+const char *value = std::getenv("OMP_NUM_THREADS");
+if (value) 
+  std::cout << "Get value from OMP_NUM_THREADS=" << atoi(value) << std::endl;
+int nproc = (value) ? atoi( value ) : sysconf(_SC_NPROCESSORS_ONLN);
+ 
+ 
+#pragma omp parallel for
+for(int i=0;i<nproc;i++)
+{
+ if (sched_setaffinity(gettid(), sizeof(set), &set) == -1)
+ {
+   std::cout << "sched_setaffinity" << std::endl;
+   exit(1);
+ }
+ std::cout <<"[" << i << "]["<< omp_get_thread_num() << "/" << omp_get_num_threads() << "] Affinity=" << getpid() << " tid=" << gettid() << std::endl; 
+}
+// std::cout << "## setCores #  "<<  << "/" << cores.size() << std::endl;      
+           
+}
+
+
+
+
+
 DGL_REGISTER_GLOBAL("dataloading.async_transferer._CAPI_DGLAsyncTransfererCreate")
 .set_body([] (DGLArgs args, DGLRetValue* rv) {
     DGLContext ctx = args[0];
@@ -132,6 +187,21 @@ DGL_REGISTER_GLOBAL("dataloading.async_transferer._CAPI_DGLAsyncTransfererWait")
   NDArray arr = ref->Wait(id);
   *rv = arr;
 });
+
+DGL_REGISTER_GLOBAL("dataloading.async_transferer._CAPI_SetCores")
+.set_body([] (DGLArgs args, DGLRetValue* rv) {
+  // AsyncTransfererRef ref = args[0];
+  // int id = args[1];
+  // NDArray arr = ref->Wait(id);
+  // *rv = arr;
+  
+    IdArray array = args[0];
+    const auto& cores = array.ToVector<int64_t>();
+    setCores(cores);
+
+});
+
+
 
 }  // namespace dataloading
 }  // namespace dgl
