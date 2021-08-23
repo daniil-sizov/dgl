@@ -50,26 +50,32 @@ namespace dataloading {
 
      void FakeGompAfinity(const std::vector<int64_t>& cores) {
 
-      if(cores.size())
-      {
-         log_error("FAKE_GOMP_AFINITY for " << gettid());
-         return;
-      }
+//      if(cores.size())
+//      {
+//         log_error("FAKE_GOMP_AFINITY for " << gettid());
+//         return;
+//      }
 
      // auto nproc = getNumOfCores();
 
 
-
-
+      log_info("#### FAKE OMP MAX_THREADS=" << omp_get_max_threads());
       #pragma omp parallel for
       for(int i=0;i<omp_get_max_threads();i++)
       //for(int i=0;i<3;i++)
-     /*
+
       {
-       std::lock_guard<decltype(getMutex())> l(getMutex());
+      //  std::lock_guard<decltype(getMutex())> l(getMutex());
+        auto it = std::find(cores.begin(),cores.end(),i);
+        if(it!=cores.end())
+        {
+         continue;
+        }
         cpu_set_t set;
         CPU_ZERO(&set);
-        auto hyperthread = i % 31;  // 32 cores from 36
+       // auto hyperthread = i % 31;  // 32 cores from 36
+        auto hyperthread = i;  // 32 cores from 36
+
         CPU_SET( hyperthread , &set);
         auto tid = gettid();
         if (sched_setaffinity(tid, sizeof(set), &set) == -1)
@@ -77,27 +83,30 @@ namespace dataloading {
            log_error("sched_setaffinity for " << tid);
            continue;
         }
-        log_info_lock("["<< i << "] fake  OK OMP affinity for pid="<< getpid() << " tid=" << tid << " pthread_self=" << pthread_self());
+       // log_info_lock("["<< i << "] fake  OK OMP affinity for pid="<< getpid() << " tid=" << tid << " pthread_self=" << pthread_self());
+        log_info("["<< i << "] Fake omp");
      }
-     */
-     {
 
-         cpu_set_t cpuset;
-         pthread_t tid;
-         tid = pthread_self();
-
-/* Set affinity mask to include CPUs 0 to 7 */
-
-          CPU_ZERO(&cpuset);
-          auto hyperthread = i % 31;
-          CPU_SET(hyperthread, &cpuset);
-
-          auto s = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
-          if (s != 0) {
-                   log_error("sched_setaffinity for " << tid);
-          }
-          log_info_lock("["<< i << "] fake pthread_setaffinity OK OMP affinity for pid="<< getpid() << " tid=" << tid  );
-     }
+//     {
+//
+//
+//
+//         cpu_set_t cpuset;
+//         pthread_t tid;
+//         tid = pthread_self();
+//
+///* Set affinity mask to include CPUs 0 to 7 */
+//
+//          CPU_ZERO(&cpuset);
+//          auto hyperthread = i % 31;
+//          CPU_SET(hyperthread, &cpuset);
+//
+//          auto s = pthread_setaffinity_np(tid, sizeof(cpu_set_t), &cpuset);
+//          if (s != 0) {
+//                   log_error("sched_setaffinity for " << tid);
+//          }
+//         // log_info_lock("["<< i << "] fake pthread_setaffinity OK OMP affinity for pid="<< getpid() << " tid=" << tid  );
+//     }
 
 
 

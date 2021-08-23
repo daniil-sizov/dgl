@@ -45,7 +45,11 @@ def load_subtensor(nfeat, labels, seeds, input_nodes, device):
 #### Entry point
 def run(args, device, data):
     # Unpack data
-    #th.set_num_threads(18)
+    import os
+    env_set_num_th = os.getenv("DGL_SET_NUM_THREADS", None)
+    if env_set_num_th is not None:
+        print(f"#### DGL_SET_NUM_THREADS ENABLED {env_set_num_th}")
+        th.set_num_threads(int(env_set_num_th))
     #th.random.manual_seed(5)
     #print('MAIN  PROCESS SET SEE 5')
     n_classes, train_g, val_g, test_g, train_nfeat, train_labels, \

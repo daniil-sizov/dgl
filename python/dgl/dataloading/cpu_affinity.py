@@ -9,6 +9,7 @@ def PinOMPThreads(x):
     _CAPI_SetOMPThreadAffinity(x)
 
 def FakeGompAffinity(x):
+    print(f'#### FakeGOMPIsActivated exclude threads: {x} ####')
     x = F.to_dgl_nd(F.tensor(x, dtype=F.int64))
     _CAPI_FakeGompAffinity(x)
 

@@ -527,7 +527,16 @@ class NodeDataLoader:
         dataloader_kwargs['worker_init_fn'] = self.worker_init_function
         #dataloader_kwargs["persistent_workers"] = True
         from dgl.dataloading import cpu_affinity
-        #cpu_affinity.FakeGompAffinity([])
+        import os
+        env_fake_gomp = os.getenv("DGL_FAKEGOMP_EXCLUDE", None)
+        if env_fake_gomp is not None:
+           tab = env_fake_gomp.split(',')
+
+           if len(tab)==0:
+               cpu_affinity.FakeGompAffinity([])
+           else:
+               tab_int = [int(numeric_string) for numeric_string in tab]
+               cpu_affinity.FakeGompAffinity(tab_int)
 
 
         if isinstance(g, DistGraph):
