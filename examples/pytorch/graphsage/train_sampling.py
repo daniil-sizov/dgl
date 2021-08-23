@@ -45,6 +45,9 @@ def load_subtensor(nfeat, labels, seeds, input_nodes, device):
 #### Entry point
 def run(args, device, data):
     # Unpack data
+    #th.set_num_threads(18)
+    #th.random.manual_seed(5)
+    #print('MAIN  PROCESS SET SEE 5')
     n_classes, train_g, val_g, test_g, train_nfeat, train_labels, \
     val_nfeat, val_labels, test_nfeat, test_labels = data
     in_feats = train_nfeat.shape[1]

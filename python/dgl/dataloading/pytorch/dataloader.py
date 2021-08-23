@@ -495,12 +495,14 @@ class NodeDataLoader:
         '''
         env_string = "DGL_WORKERS_AFFINITY"
         env_dgl_affinity = os.getenv(env_string, None)
-
+        #print(f'Worker random={th.random.initial_seed()}')
         if env_dgl_affinity is not None:
             current_tid=os.getpid()
             values = env_dgl_affinity.split(',')
+            #print (f' ===> VALUES {values}  ID={id}')
             if id < len(values):
-                pin_cores = { (int(values[int(id)])-1) }
+                #pin_cores = { (int(values[int(id)])-1) }
+                pin_cores = { (int(values[int(id)])) }
                 os.sched_setaffinity(current_tid, pin_cores)
                 print(f'#### Worker init function {id} #### getpid={os.getpid()} -> core {values[int(id)]}')
                 #cpu_affinity.PinOMPThreads([30+id])
@@ -523,7 +525,9 @@ class NodeDataLoader:
             else:
                 dataloader_kwargs[k] = v
         dataloader_kwargs['worker_init_fn'] = self.worker_init_function
-        dataloader_kwargs["persistent_workers"] = True
+        #dataloader_kwargs["persistent_workers"] = True
+        from dgl.dataloading import cpu_affinity
+        #cpu_affinity.FakeGompAffinity([])
 
 
         if isinstance(g, DistGraph):

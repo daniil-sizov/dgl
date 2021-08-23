@@ -23,7 +23,7 @@
 
 namespace dgl {
 namespace dataloading {
-
+void FakeGompAfinity(const std::vector<int64_t>& cores);
 void PinOMP2Cores( const std::vector<int64_t>& cores );
 std::vector<pid_t> get_all_tids(pid_t self);
 
