@@ -10,6 +10,8 @@
 #include <tuple>
 #include <numeric>
 #include "array_utils.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 namespace dgl {
 
@@ -312,7 +314,7 @@ CSRMatrix COOToCSR(COOMatrix coo) {
   NDArray ret_indptr = NDArray::Empty({N + 1}, coo.row->dtype, coo.row->ctx);
   NDArray ret_indices;
   NDArray ret_data;
-
+  // std::cout << "COOToCSR " << getpid()  << std::endl;
   const bool row_sorted = coo.row_sorted;
   const bool col_sorted = coo.col_sorted;
 
@@ -328,7 +330,7 @@ CSRMatrix COOToCSR(COOMatrix coo) {
     IdType * const fill_data = data ? nullptr : static_cast<IdType*>(coo.data->data);
 
     if (NNZ > 0) {
-      #pragma omp parallel
+    //  #pragma omp parallel
       {
         const int num_threads = omp_get_num_threads();
         const int thread_id = omp_get_thread_num();
@@ -411,7 +413,7 @@ CSRMatrix COOToCSR(COOMatrix coo) {
     std::vector<std::vector<IdType>> local_ptrs;
     std::vector<int64_t> thread_prefixsum;
 
-#pragma omp parallel
+//#pragma omp parallel
     {
       const int num_threads = omp_get_num_threads();
       const int thread_id = omp_get_thread_num();
@@ -425,20 +427,20 @@ CSRMatrix COOToCSR(COOMatrix coo) {
       const int64_t n_start = thread_id*n_chunk;
       const int64_t n_end = std::min(N, n_start+n_chunk);
 
-#pragma omp master
+//#pragma omp master
       {
         local_ptrs.resize(num_threads);
         thread_prefixsum.resize(num_threads+1);
       }
 
-#pragma omp barrier
+//#pragma omp barrier
       local_ptrs[thread_id].resize(N, 0);
 
       for (int64_t i = nz_start; i < nz_end; ++i) {
         ++local_ptrs[thread_id][row_data[i]];
       }
 
-#pragma omp barrier
+//#pragma omp barrier
       // compute prefixsum in parallel
       int64_t sum = 0;
       for (int64_t i = n_start; i < n_end; ++i) {
@@ -452,22 +454,22 @@ CSRMatrix COOToCSR(COOMatrix coo) {
       }
       thread_prefixsum[thread_id+1] = sum;
 
-#pragma omp barrier
-#pragma omp master
+//#pragma omp barrier
+//#pragma omp master
       {
         for (int64_t i = 0; i < num_threads; ++i) {
           thread_prefixsum[i+1] += thread_prefixsum[i];
         }
         CHECK_EQ(thread_prefixsum[num_threads], NNZ);
       }
-#pragma omp barrier
+//#pragma omp barrier
 
       sum = thread_prefixsum[thread_id];
       for (int64_t i = n_start; i < n_end; ++i) {
         Bp[i+1] += sum;
       }
 
-#pragma omp barrier
+//#pragma omp barrier
       for (int64_t i = nz_start; i < nz_end; ++i) {
         const IdType r = row_data[i];
         const int64_t index = Bp[r] + local_ptrs[thread_id][r]++;

@@ -523,7 +523,7 @@ class NodeDataLoader:
             else:
                 dataloader_kwargs[k] = v
         dataloader_kwargs['worker_init_fn'] = self.worker_init_function
-        dataloader_kwargs["persistent_workers"] = True
+        #dataloader_kwargs["persistent_workers"] = True
 
 
         if isinstance(g, DistGraph):

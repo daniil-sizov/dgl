@@ -630,7 +630,7 @@ DGL_REGISTER_GLOBAL("heterograph_index._CAPI_DGLHeteroCreateFormat")
     HeteroGraphRef hg = args[0];
     dgl_format_code_t code = hg->GetRelationGraph(0)->GetAllowedFormats();
 #if !defined(DGL_USE_CUDA)
-#pragma omp parallel for
+//#pragma omp parallel for
 #endif
     for (int64_t etype = 0; etype < hg->NumEdgeTypes(); ++etype) {
       auto bg = std::dynamic_pointer_cast<UnitGraph>(hg->GetRelationGraph(etype));
