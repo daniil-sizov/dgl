@@ -479,37 +479,20 @@ class NodeDataLoader:
     """
     collator_arglist = inspect.getfullargspec(NodeCollator).args
 
-    def worker_init_function(self, id):
+    
+
+
+    def worker_init_fn(self, worker_id):
+        import psutil
         import os
-        from dgl.dataloading import cpu_affinity
-        '''
-        We have only main thread so PID equal to TID
-        Example: 
-        --num-workers=3
-        you should set
-        cores are from { 1.....N }
-        export DGL_WORKERS_AFFINITY="7,15,9"
-                 -> worker0 is pinned to core 7
-                 -> worker1 is pinned to core 15
-                 -> worker2 is pinned to core 9 
-        '''
-        env_string = "DGL_WORKERS_AFFINITY"
-        env_dgl_affinity = os.getenv(env_string, None)
-
-        if env_dgl_affinity is not None:
-            current_tid=os.getpid()
-            values = env_dgl_affinity.split(',')
-            if id < len(values):
-                pin_cores = { (int(values[int(id)])) }
-                os.sched_setaffinity(current_tid, pin_cores)
-                print(f'#### Worker init function {id} #### getpid={os.getpid()} -> core {values[int(id)]}')
-                #cpu_affinity.PinOMPThreads([30+id])
-            else:
-                print(f'ERROR: incorect value of {env_string}')
-
-
-
-
+        cpu_aff = psutil.Process().cpu_affinity()
+        cpu_aff_new = [cpu_aff[0] - worker_id -1]
+        
+        try:
+            psutil.Process().cpu_affinity(cpu_aff_new)
+            print("Worker {} with pid {} called, new affinity = {}".format(worker_id, os.getpid(), psutil.Process().cpu_affinity()))
+        except:
+            print("Unable to set worker affinity {} for worker {}".format(cpu_aff_new, worker_id))
 
 
 
@@ -522,7 +505,7 @@ class NodeDataLoader:
                 collator_kwargs[k] = v
             else:
                 dataloader_kwargs[k] = v
-        dataloader_kwargs['worker_init_fn'] = self.worker_init_function
+        dataloader_kwargs['worker_init_fn'] = self.worker_init_fn
         #dataloader_kwargs["persistent_workers"] = True
 
 
