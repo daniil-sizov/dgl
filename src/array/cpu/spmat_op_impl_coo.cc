@@ -7,11 +7,9 @@
 #include <dmlc/omp.h>
 
 #include <numeric>
-#include <tuple>
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
-
+#include <fstream>
+#include <string>
+#include <chrono>
 #include "array_utils.h"
 
 namespace dgl {
@@ -534,13 +532,22 @@ CSRMatrix UnSortedSparseCOOToCSR(const COOMatrix &coo) {
       coo.col_sorted);
 }
 
-template <class IdType>
-CSRMatrix UnSortedDenseCOOToCSR(const COOMatrix &coo) {
-  // Unsigned version of the original integer index data type.
-  // It avoids overflow in (N + num_threads) and (n_start + n_chunk) below.
-  typedef typename std::make_unsigned<IdType>::type UIdType;
+template <class IdType> CSRMatrix UnSortedDenseCOOToCSR(const COOMatrix &coo) {
+// uncomment to switch off OMP for small matrices
+#define X_SMALL_M_OMP_OFF
 
-  const UIdType N = coo.num_rows;
+// uncomment to add empty openmp parallel section with barriers
+// #define X_EMPTY_BARRIERS
+
+// uncomment to enable debug output
+// #define X_DEBUG_OUTPUT
+
+#ifdef X_DEBUG_OUTPUT
+  static int calln = 0;
+  auto tic = std::chrono::steady_clock::now();
+#endif
+
+  const int64_t N = coo.num_rows;
   const int64_t NNZ = coo.row->shape[0];
   const IdType *const row_data = static_cast<IdType *>(coo.row->data);
   const IdType *const col_data = static_cast<IdType *>(coo.col->data);
@@ -560,7 +567,11 @@ CSRMatrix UnSortedDenseCOOToCSR(const COOMatrix &coo) {
   std::vector<std::vector<IdType>> local_ptrs;
   std::vector<int64_t> thread_prefixsum;
 
+#if !defined(X_SMALL_M_OMP_OFF)
 #pragma omp parallel
+#else
+#pragma omp parallel if (NNZ >= 1024)
+#endif
   {
     const int num_threads = omp_get_num_threads();
     const int thread_id = omp_get_thread_num();
@@ -627,119 +638,23 @@ CSRMatrix UnSortedDenseCOOToCSR(const COOMatrix &coo) {
   }
   CHECK_EQ(Bp[N], NNZ);
 
-  return CSRMatrix(
-      coo.num_rows, coo.num_cols, ret_indptr, ret_indices, ret_data,
-      coo.col_sorted);
-}
-
-// complexity: time O(NNZ), space O(1)
-template <typename IdType>
-CSRMatrix UnSortedSmallCOOToCSR(COOMatrix coo) {
-  const int64_t N = coo.num_rows;
-  const int64_t NNZ = coo.row->shape[0];
-  const IdType *row_data = static_cast<IdType *>(coo.row->data);
-  const IdType *col_data = static_cast<IdType *>(coo.col->data);
-  const IdType *data =
-      COOHasData(coo) ? static_cast<IdType *>(coo.data->data) : nullptr;
-  NDArray ret_indptr = NDArray::Empty({N + 1}, coo.row->dtype, coo.row->ctx);
-  NDArray ret_indices = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
-  NDArray ret_data = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
-  IdType *Bp = static_cast<IdType *>(ret_indptr->data);
-  IdType *Bi = static_cast<IdType *>(ret_indices->data);
-  IdType *Bx = static_cast<IdType *>(ret_data->data);
-
-  // Count elements in each row
-  std::fill(Bp, Bp + N, 0);
-  for (int64_t i = 0; i < NNZ; ++i) {
-    Bp[row_data[i]]++;
+#ifdef X_EMPTY_BARRIERS
+  #pragma omp parallel
+  {
+    #pragma omp barrier
+    #pragma omp barrier
+    #pragma omp barrier
   }
-
-  // Convert to indexes
-  for (IdType i = 0, cumsum = 0; i < N; ++i) {
-    const IdType temp = Bp[i];
-    Bp[i] = cumsum;
-    cumsum += temp;
-  }
-
-  for (int64_t i = 0; i < NNZ; ++i) {
-    const IdType r = row_data[i];
-    Bi[Bp[r]] = col_data[i];
-    Bx[Bp[r]] = data ? data[i] : i;
-    Bp[r]++;
-  }
-
-  // Restore the indptr
-  for (int64_t i = N; i > 0; --i) {
-    Bp[i] = Bp[i - 1];
-  }
-  Bp[0] = 0;
-
-  return CSRMatrix(
-      coo.num_rows, coo.num_cols, ret_indptr, ret_indices, ret_data,
-      coo.col_sorted);
-}
-
-enum class COOToCSRAlg {
-  sorted = 0,
-  unsortedSmall,
-  unsortedSparse,
-  unsortedDense
-};
-
-/**
- * Chose COO to CSR format conversion algorithm for given COO matrix according
- * to heuristic based on measured performance.
- *
- * Implementation and complexity details. N: num_nodes, NNZ: num_edges, P:
- * num_threads.
- *   1. If row is sorted in COO, SortedCOOToCSR<> is applied. Time: O(NNZ/P),
- * space: O(1).
- *   2 If row is NOT sorted in COO and graph is small (small number of NNZ),
- * UnSortedSmallCOOToCSR<> is applied. Time: O(NNZ), space O(N).
- *   3 If row is NOT sorted in COO and graph is sparse (low average degree),
- * UnSortedSparseCOOToCSR<> is applied. Time: O(NNZ/P + N/P + P^2),
- * space O(NNZ + P^2).
- *   4. If row is NOT sorted in COO and graph is dense (medium/high average
- * degree), UnSortedDenseCOOToCSR<> is applied. Time: O(NNZ/P + N/P),
- * space O(NNZ + N*P).
- *
- * Note:
- *   If you change this function, change also _TestCOOToCSRAlgs in
- * tests/cpp/test_spmat_coo.cc
- */
-template <typename IdType>
-inline COOToCSRAlg WhichCOOToCSR(const COOMatrix &coo) {
-  if (coo.row_sorted) {
-    return COOToCSRAlg::sorted;
-  } else {
-#ifdef _WIN32
-    // On Windows omp_get_max_threads() gives larger value than later OMP can
-    // spawn.
-    int64_t num_threads;
-#pragma omp parallel
-#pragma master
-    { num_threads = omp_get_num_threads(); }
-#else
-    const int64_t num_threads = omp_get_max_threads();
 #endif
-    const int64_t N = coo.num_rows;
-    const int64_t NNZ = coo.row->shape[0];
-    // Parameters below are heuristically chosen according to measured
-    // performance.
-    const int64_t type_scale = sizeof(IdType) >> 1;
-    const int64_t small = 50 * num_threads * type_scale * type_scale;
-    if (NNZ < small || num_threads == 1) {
-      // For relatively small number of non zero elements cost of spread
-      // algorithm between threads is bigger than improvements from using
-      // many cores
-      return COOToCSRAlg::unsortedSmall;
-    } else if (type_scale * NNZ < num_threads * N) {
-      // For relatively small number of non zero elements in matrix, sparse
-      // parallel version of algorithm is more efficient than dense.
-      return COOToCSRAlg::unsortedSparse;
-    }
-    return COOToCSRAlg::unsortedDense;
-  }
+
+#ifdef X_DEBUG_OUTPUT
+  auto toc = std::chrono::steady_clock::now();
+  std::cout << "Call: " << calln << "\t NNZ: "  << NNZ << "\t N: " << N << "\t" << std::chrono::duration_cast<std::chrono::milliseconds>(toc - tic).count() << " ms" << std::endl;
+  calln++;
+#endif
+
+  return CSRMatrix(coo.num_rows, coo.num_cols, ret_indptr, ret_indices,
+                   ret_data, coo.col_sorted);
 }
 
 }  // namespace

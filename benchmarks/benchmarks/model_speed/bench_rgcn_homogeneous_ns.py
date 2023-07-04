@@ -290,7 +290,7 @@ def track_time(data):
         shuffle=True,
         drop_last=False,
         num_workers=num_workers,
-    )
+        use_cpu_worker_affinity=True)
 
     # node features
     # None for one-hot feature, if not none, it should be the feature tensor.

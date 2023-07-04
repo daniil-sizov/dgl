@@ -33,10 +33,13 @@ fi
 
 conda activate ${DGLBACKEND}-ci
 
-if [ $DGLBACKEND == "mxnet" ]
-then
-  python3 -m pytest -v --junitxml=pytest_compute.xml --durations=100 --ignore=tests/python/common/test_ffi.py tests/python/common || fail "common"
-else
-  python3 -m pytest -v --junitxml=pytest_common.xml --durations=100 tests/python/common || fail "common"
+python3 -m pip install pytest psutil pyyaml pandas pydantic rdflib || EXIT /B 1
+python3 -m pytest -v --junitxml=pytest_compute.xml tests/compute || fail "compute"
+python3 -m pytest -v --junitxml=pytest_backend.xml tests/$DGLBACKEND || fail "backend-specific"
+
+export OMP_NUM_THREADS=1
+export DMLC_LOG_DEBUG=1
+if [ $2 != "gpu" ]; then
+    python3 -m pytest -v --capture=tee-sys --junitxml=pytest_distributed.xml tests/distributed/*.py || fail "distributed"
 fi
 python3 -m pytest -v --junitxml=pytest_backend.xml --durations=100 tests/python/$DGLBACKEND || fail "backend-specific"

@@ -345,14 +345,27 @@ def track_time(data):
     )
 
     sampler = dgl.dataloading.MultiLayerNeighborSampler([fanout] * n_layers)
-    loader = dgl.dataloading.DataLoader(
-        hg,
-        {category: train_idx},
-        sampler,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=4,
-    )
+    loader = dgl.dataloading.NodeDataLoader(
+        hg, {category: train_idx}, sampler,
+        batch_size=batch_size, shuffle=True, num_workers=4,
+        use_cpu_worker_affinity=True)
+
+    # dry run
+    for i, (input_nodes, seeds, blocks) in enumerate(loader):
+        blocks = [blk.to(device) for blk in blocks]
+        seeds = seeds[category]     # we only predict the nodes with type "category"
+        batch_tic = time.time()
+        emb = embed_layer(blocks[0])
+        lbl = labels[seeds].to(device)
+        emb = {k : e.to(device) for k, e in emb.items()}
+        logits = model(emb, blocks)[category]
+        loss = F.cross_entropy(logits, lbl)
+        loss.backward()
+        optimizer.step()
+        sparse_optimizer.step()
+
+        if i >= 3:
+            break
 
     print("start training...")
     model.train()
